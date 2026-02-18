@@ -1,14 +1,37 @@
 [project]
 name = "smelt-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "LLM-powered structured data transformation"
+readme = "README_PYPI.md"
 requires-python = ">=3.10"
 license = "MIT"
+authors = [
+    { name = "Cydra Tech", email = "jeevansp07@gmail.com" },
+]
+keywords = ["llm", "pydantic", "structured-output", "data-transformation", "batch-processing", "langchain"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "langchain-core>=0.3",
     "langchain>=0.3",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Cydra-Tech/smelt-ai"
+Repository = "https://github.com/Cydra-Tech/smelt-ai"
+Issues = "https://github.com/Cydra-Tech/smelt-ai/issues"
+Documentation = "https://cydra-tech.github.io/smelt-ai/"
 
 [project.optional-dependencies]
 openai = ["langchain-openai"]
@@ -29,6 +52,11 @@ dev = [
     "ruff>=0.8",
     "python-dotenv>=1.0",
     "ipykernel>=7.2.0",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
 ]
 
 [tool.pytest.ini_options]

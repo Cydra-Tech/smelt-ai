@@ -34,5 +34,8 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
+# Docs
+site/
+
 # Claude
 .claude/

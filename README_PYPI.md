@@ -1,10 +1,5 @@
 # Smelt AI
 
-[![PyPI](https://img.shields.io/pypi/v/smelt-ai)](https://pypi.org/project/smelt-ai/)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cydra-tech.github.io/smelt-ai/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-
 LLM-powered structured data transformation. Feed in rows of data, get back strictly typed Pydantic models — batched, concurrent, and validated.
 
 ```python
@@ -50,200 +45,64 @@ Requires Python 3.10+.
 
 ### Pipeline Overview
 
-```mermaid
-flowchart LR
-    A["list[dict]"] --> B["Tag rows\nwith row_id"]
-    B --> S{"shuffle?"}
-    S -->|Yes| Sh["Shuffle\ntagged rows"]
-    S -->|No| C
-    Sh --> C["Split into\nbatches"]
-    C --> D["Concurrent\nLLM calls"]
-    D --> E["Validate\nschema + IDs"]
-    E --> F["Reorder by\nrow_id"]
-    F --> G["SmeltResult[T]"]
-
-    style A fill:#f9f,stroke:#333
-    style G fill:#9f9,stroke:#333
+```
+list[dict] → Tag rows with row_id → Shuffle? → Split into batches → Concurrent LLM calls → Validate schema + IDs → Reorder by row_id → SmeltResult[T]
 ```
 
 ### How a Job Executes
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Job
-    participant BatchEngine
-    participant LLM
+1. **Prepare** — Tag each row with a `row_id`, optionally shuffle, create internal Pydantic model, build system prompt, split into batches
+2. **Execute** — Send batches concurrently to the LLM (controlled by `concurrency` semaphore)
+3. **Validate** — For each batch response: validate row IDs, check schema conformance
+4. **Assemble** — Sort all rows by `row_id`, strip internal fields, aggregate metrics into `SmeltResult[T]`
 
-    User->>Job: job.run(model, data)
-    Job->>BatchEngine: execute_batches()
+### Retry & Backoff
 
-    Note over BatchEngine: Tag rows with row_id<br/>Shuffle if enabled<br/>Create internal Pydantic model<br/>Build system prompt<br/>Split into batches
-
-    par Batch 0
-        BatchEngine->>LLM: [system_msg, human_msg]
-        LLM-->>BatchEngine: structured response
-    and Batch 1
-        BatchEngine->>LLM: [system_msg, human_msg]
-        LLM-->>BatchEngine: structured response
-    and Batch N
-        BatchEngine->>LLM: [system_msg, human_msg]
-        LLM-->>BatchEngine: structured response
-    end
-
-    Note over BatchEngine: Validate row IDs per batch<br/>Sort by row_id<br/>Strip row_id field<br/>Aggregate metrics
-
-    BatchEngine-->>Job: SmeltResult[T]
-    Job-->>User: result
-```
-
-### Retry & Backoff Flow
-
-Each batch independently retries on failure. Validation errors (bad schema) and transient API errors (429, 5xx) trigger retries. Client errors (400, 401, 403) fail immediately.
-
-```mermaid
-flowchart TD
-    Start([Send batch to LLM]) --> Response{Response OK?}
-
-    Response -->|Parsed + valid| Success([Return rows])
-
-    Response -->|Parse/validation error| Retriable1{Retries left?}
-    Retriable1 -->|Yes| Backoff1["Backoff: 1s × 2^attempt + jitter"]
-    Backoff1 --> Start
-    Retriable1 -->|No| Fail([BatchError])
-
-    Response -->|API error| Check{Retriable?}
-    Check -->|"429, 5xx, timeout"| Retriable2{Retries left?}
-    Retriable2 -->|Yes| Backoff2["Backoff: 1s × 2^attempt + jitter"]
-    Backoff2 --> Start
-    Retriable2 -->|No| Fail
-
-    Check -->|"400, 401, 403"| Fail
-
-    style Success fill:#9f9,stroke:#333
-    style Fail fill:#f99,stroke:#333
-```
+Each batch independently retries on failure. Validation errors (bad schema) and transient API errors (429, 5xx) trigger retries with exponential backoff (`1s × 2^attempt + jitter`, capped at 60s). Client errors (400, 401, 403) fail immediately without retrying.
 
 ### Concurrency Model
 
 Smelt uses `asyncio.Semaphore` for cooperative async concurrency — no threads, no process pools. While one batch awaits an LLM response, others can fire off their requests on the same thread.
 
-```mermaid
-gantt
-    title concurrency=3, batch_size=5, 15 rows
-    dateFormat X
-    axisFormat %s
+```
+concurrency=3, batch_size=5, 15 rows:
 
-    section Batch 0
-    LLM call (rows 0-4)   :active, b0, 0, 3
-
-    section Batch 1
-    LLM call (rows 5-9)   :active, b1, 0, 4
-
-    section Batch 2
-    LLM call (rows 10-14) :active, b2, 0, 2
-
-    section Semaphore
-    3 slots occupied       :crit, s0, 0, 2
-    2 slots occupied       :s1, 2, 3
-    1 slot occupied        :s2, 3, 4
+  Batch 0 (rows 0–4):   ████████░░░░
+  Batch 1 (rows 5–9):   ████████████
+  Batch 2 (rows 10–14): ██████░░░░░░
+                         ↑ 3 slots    ↑ 1 slot
 ```
 
 ### Row ID Tracking
 
 Smelt injects a `row_id` field into your model, tells the LLM to echo it back, then validates and strips it. This ensures correct ordering even when batches complete out of order.
 
-```mermaid
-flowchart LR
-    subgraph Input
-        direction TB
-        R0["row 0: {name: Apple}"]
-        R1["row 1: {name: Stripe}"]
-        R2["row 2: {name: Mayo}"]
-    end
-
-    subgraph Tagged
-        direction TB
-        T0["{row_id: 0, name: Apple}"]
-        T1["{row_id: 1, name: Stripe}"]
-        T2["{row_id: 2, name: Mayo}"]
-    end
-
-    subgraph "LLM Output (may be unordered)"
-        direction TB
-        L1["{row_id: 1, sector: Fintech}"]
-        L0["{row_id: 0, sector: Tech}"]
-        L2["{row_id: 2, sector: Health}"]
-    end
-
-    subgraph "Final (reordered)"
-        direction TB
-        F0["Classification(sector=Tech)"]
-        F1["Classification(sector=Fintech)"]
-        F2["Classification(sector=Health)"]
-    end
-
-    Input --> Tagged --> L1
-    L1 ~~~ L0
-    L0 ~~~ L2
-    L2 --> F0
-
-    style F0 fill:#9f9,stroke:#333
-    style F1 fill:#9f9,stroke:#333
-    style F2 fill:#9f9,stroke:#333
+```
+Input:                    Tagged:                    LLM Output (unordered):    Final (reordered):
+  {name: Apple}     →      {row_id: 0, name: Apple}    {row_id: 1, Fintech}  →    Classification(Tech)
+  {name: Stripe}    →      {row_id: 1, name: Stripe}   {row_id: 0, Tech}     →    Classification(Fintech)
+  {name: Mayo}      →      {row_id: 2, name: Mayo}      {row_id: 2, Health}   →    Classification(Health)
 ```
 
 ### Dynamic Model Creation
 
-Under the hood, smelt dynamically extends your Pydantic model to add `row_id`, then wraps it in a batch container for `with_structured_output`.
+Under the hood, smelt dynamically extends your Pydantic model to add `row_id`, then wraps it in a batch container for `with_structured_output`:
 
-```mermaid
-classDiagram
-    class YourModel {
-        +str sector
-        +str sub_sector
-        +bool is_public
-    }
-
-    class _SmeltYourModel {
-        +int row_id
-        +str sector
-        +str sub_sector
-        +bool is_public
-    }
-
-    class _SmeltBatch {
-        +list~_SmeltYourModel~ rows
-    }
-
-    YourModel <|-- _SmeltYourModel : extends via create_model()
-    _SmeltYourModel --* _SmeltBatch : rows
-
-    note for _SmeltYourModel "Injected row_id for tracking.\nStripped before returning to user."
-    note for _SmeltBatch "Wrapper required by LangChain's\nwith_structured_output()."
+```
+YourModel                    _SmeltYourModel (extends YourModel)     _SmeltBatch
+  sector: str          →       row_id: int                             rows: list[_SmeltYourModel]
+  sub_sector: str                sector: str
+  is_public: bool                sub_sector: str
+                                 is_public: bool
 ```
 
 ### Error Handling Modes
 
-```mermaid
-flowchart TD
-    subgraph "stop_on_exhaustion = True (default)"
-        A1[Batch fails] --> A2[Set cancel event]
-        A2 --> A3[Pending batches skip]
-        A3 --> A4[Raise SmeltExhaustionError]
-        A4 --> A5["e.partial_result has\nsuccessful batches"]
-    end
+**`stop_on_exhaustion=True` (default):**
+Batch fails → set cancel event → pending batches skip → raise `SmeltExhaustionError` → `e.partial_result` has successful batches
 
-    subgraph "stop_on_exhaustion = False"
-        B1[Batch fails] --> B2[Record BatchError]
-        B2 --> B3[Continue processing]
-        B3 --> B4[Return SmeltResult]
-        B4 --> B5["result.errors has failures\nresult.data has successes"]
-    end
-
-    style A4 fill:#f99,stroke:#333
-    style B4 fill:#ff9,stroke:#333
-```
+**`stop_on_exhaustion=False`:**
+Batch fails → record `BatchError` → continue processing → return `SmeltResult` → `result.errors` has failures, `result.data` has successes
 
 ---
 
@@ -404,6 +263,12 @@ uv run pytest tests/test_live.py -v
 # Lint
 uv run ruff check src/ tests/
 ```
+
+## Links
+
+- [GitHub Repository](https://github.com/Cydra-Tech/smelt-ai)
+- [Issue Tracker](https://github.com/Cydra-Tech/smelt-ai/issues)
+- [Documentation](https://cydra-tech.github.io/smelt-ai/)
 
 ## License
 
