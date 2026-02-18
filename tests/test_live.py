@@ -833,7 +833,7 @@ class TestGemini:
 
 
 class TestLatestOpenAI:
-    """Tests with the latest OpenAI models (2025-2026 generation)."""
+    """Tests with the latest OpenAI models (2025 generation)."""
 
     @skip_no_openai
     def test_gpt4_1_company_classification(self) -> None:
@@ -924,7 +924,7 @@ class TestLatestOpenAI:
 
 
 class TestLatestAnthropic:
-    """Tests with the latest Anthropic Claude models (2025-2026 generation)."""
+    """Tests with the latest Anthropic Claude models (2025 generation)."""
 
     @skip_no_anthropic
     def test_sonnet_4_company_classification(self) -> None:
@@ -1025,7 +1025,7 @@ class TestLatestAnthropic:
 
 
 class TestLatestGemini:
-    """Tests with the latest Google Gemini models (2025-2026 generation)."""
+    """Tests with the latest Google Gemini models (2025 generation)."""
 
     @skip_no_gemini
     def test_gemini_25_flash_company_classification(self) -> None:
@@ -1129,6 +1129,294 @@ class TestLatestGemini:
 
 
 # ===========================================================================
+# 2026 Generation Models
+# ===========================================================================
+
+
+class Test2026OpenAI:
+    """Tests with 2026 generation OpenAI models."""
+
+    @skip_no_openai
+    def test_gpt52_company_classification(self) -> None:
+        """GPT-5.2: classify companies."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(provider="openai", name="gpt-5.2", api_key=OPENAI_KEY)
+        job = Job(
+            prompt="Classify each company by its primary industry sector and sub-sector. "
+            "Determine if the company is publicly traded.",
+            output_model=IndustryClassification,
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[IndustryClassification] = job.run(model, data=data)
+        print_result_summary("OpenAI", "gpt-5.2", result)
+        assert_result_valid(result, len(data), IndustryClassification)
+
+    @skip_no_openai
+    def test_gpt52_sentiment_analysis(self) -> None:
+        """GPT-5.2: sentiment analysis on product reviews."""
+        data: list[dict[str, str]] = load_csv("products.csv")
+        model = Model(provider="openai", name="gpt-5.2", api_key=OPENAI_KEY)
+        job = Job(
+            prompt="Analyze the sentiment of each product's customer_review. "
+            "Identify the overall sentiment, assign a score, and extract key themes.",
+            output_model=SentimentAnalysis,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[SentimentAnalysis] = job.run(model, data=data)
+        print_result_summary("OpenAI", "gpt-5.2", result)
+        assert_result_valid(result, len(data), SentimentAnalysis)
+        for row in result.data:
+            assert 0.0 <= row.score <= 1.0
+
+    @skip_no_openai
+    def test_gpt52_ticket_triage(self) -> None:
+        """GPT-5.2: triage support tickets."""
+        data: list[dict[str, str]] = load_csv("support_tickets.csv")
+        model = Model(provider="openai", name="gpt-5.2", api_key=OPENAI_KEY)
+        job = Job(
+            prompt="Triage each support ticket. Classify by category, assign priority, "
+            "determine if human escalation is needed, and suggest a brief response.",
+            output_model=TicketTriage,
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[TicketTriage] = job.run(model, data=data)
+        print_result_summary("OpenAI", "gpt-5.2", result)
+        assert_result_valid(result, len(data), TicketTriage)
+
+    @skip_no_openai
+    def test_gpt52_full_dataset_concurrent(self) -> None:
+        """GPT-5.2: full dataset, multi-batch, concurrent."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(provider="openai", name="gpt-5.2", api_key=OPENAI_KEY)
+        job = Job(
+            prompt="Create a concise structured summary for each company. "
+            "Calculate age based on founded year (current year is 2026).",
+            output_model=CompanySummary,
+            batch_size=4,
+            concurrency=3,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[CompanySummary] = job.run(model, data=data)
+        print_result_summary("OpenAI", "gpt-5.2 (batch=4, conc=3)", result)
+        assert_result_valid(result, len(data), CompanySummary)
+        assert result.metrics.total_batches == 3
+
+
+class Test2026Anthropic:
+    """Tests with 2026 generation Anthropic Claude models."""
+
+    @skip_no_anthropic
+    def test_sonnet_46_company_classification(self) -> None:
+        """Claude Sonnet 4.6: classify companies."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(
+            provider="anthropic", name="claude-sonnet-4-6", api_key=ANTHROPIC_KEY,
+        )
+        job = Job(
+            prompt="Classify each company by its primary industry sector and sub-sector. "
+            "Determine if the company is publicly traded.",
+            output_model=IndustryClassification,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[IndustryClassification] = job.run(model, data=data)
+        print_result_summary("Anthropic", "claude-sonnet-4.6", result)
+        assert_result_valid(result, len(data), IndustryClassification)
+
+    @skip_no_anthropic
+    def test_sonnet_46_sentiment_analysis(self) -> None:
+        """Claude Sonnet 4.6: sentiment analysis."""
+        data: list[dict[str, str]] = load_csv("products.csv")
+        model = Model(
+            provider="anthropic", name="claude-sonnet-4-6", api_key=ANTHROPIC_KEY,
+            params={"temperature": 0},
+        )
+        job = Job(
+            prompt="Analyze the sentiment of each product's customer_review. "
+            "Identify the overall sentiment, assign a score, and extract key themes.",
+            output_model=SentimentAnalysis,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[SentimentAnalysis] = job.run(model, data=data)
+        print_result_summary("Anthropic", "claude-sonnet-4.6", result)
+        assert_result_valid(result, len(data), SentimentAnalysis)
+        for row in result.data:
+            assert 0.0 <= row.score <= 1.0
+
+    @skip_no_anthropic
+    def test_opus_46_company_classification(self) -> None:
+        """Claude Opus 4.6: classify companies."""
+        data: list[dict[str, str]] = load_csv("companies.csv")[:5]
+        model = Model(
+            provider="anthropic", name="claude-opus-4-6", api_key=ANTHROPIC_KEY,
+        )
+        job = Job(
+            prompt="Classify each company by its primary industry sector and sub-sector. "
+            "Determine if the company is publicly traded.",
+            output_model=IndustryClassification,
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[IndustryClassification] = job.run(model, data=data)
+        print_result_summary("Anthropic", "claude-opus-4.6", result)
+        assert_result_valid(result, len(data), IndustryClassification)
+
+    @skip_no_anthropic
+    def test_opus_46_ticket_triage(self) -> None:
+        """Claude Opus 4.6: triage support tickets."""
+        data: list[dict[str, str]] = load_csv("support_tickets.csv")[:5]
+        model = Model(
+            provider="anthropic", name="claude-opus-4-6", api_key=ANTHROPIC_KEY,
+        )
+        job = Job(
+            prompt="Triage each support ticket. Classify by category, assign priority, "
+            "determine if human escalation is needed, and suggest a brief response.",
+            output_model=TicketTriage,
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[TicketTriage] = job.run(model, data=data)
+        print_result_summary("Anthropic", "claude-opus-4.6", result)
+        assert_result_valid(result, len(data), TicketTriage)
+
+    @skip_no_anthropic
+    def test_sonnet_46_full_dataset_concurrent(self) -> None:
+        """Claude Sonnet 4.6: full dataset, multi-batch, concurrent."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(
+            provider="anthropic", name="claude-sonnet-4-6", api_key=ANTHROPIC_KEY,
+            params={"temperature": 0},
+        )
+        job = Job(
+            prompt="Create a concise structured summary for each company. "
+            "Calculate age based on founded year (current year is 2026).",
+            output_model=CompanySummary,
+            batch_size=4,
+            concurrency=3,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[CompanySummary] = job.run(model, data=data)
+        print_result_summary("Anthropic", "claude-sonnet-4.6 (batch=4, conc=3)", result)
+        assert_result_valid(result, len(data), CompanySummary)
+        assert result.metrics.total_batches == 3
+
+
+class Test2026Gemini:
+    """Tests with 2026 generation Google Gemini models."""
+
+    @skip_no_gemini
+    def test_gemini3_flash_company_classification(self) -> None:
+        """Gemini 3 Flash: classify companies."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(
+            provider="google_genai", name="gemini-3-flash-preview",
+            api_key=GEMINI_KEY,
+        )
+        job = Job(
+            prompt="Classify each company by its primary industry sector and sub-sector. "
+            "Determine if the company is publicly traded.",
+            output_model=IndustryClassification,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[IndustryClassification] = job.run(model, data=data)
+        print_result_summary("Gemini", "gemini-3-flash-preview", result)
+        assert_result_valid(result, len(data), IndustryClassification)
+
+    @skip_no_gemini
+    def test_gemini3_flash_sentiment(self) -> None:
+        """Gemini 3 Flash: sentiment analysis."""
+        data: list[dict[str, str]] = load_csv("products.csv")
+        model = Model(
+            provider="google_genai", name="gemini-3-flash-preview",
+            api_key=GEMINI_KEY,
+            params={"temperature": 0},
+        )
+        job = Job(
+            prompt="Analyze the sentiment of each product's customer_review. "
+            "Identify the overall sentiment, assign a score, and extract key themes.",
+            output_model=SentimentAnalysis,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[SentimentAnalysis] = job.run(model, data=data)
+        print_result_summary("Gemini", "gemini-3-flash-preview", result)
+        assert_result_valid(result, len(data), SentimentAnalysis)
+        for row in result.data:
+            assert 0.0 <= row.score <= 1.0
+
+    @skip_no_gemini
+    def test_gemini3_pro_company_classification(self) -> None:
+        """Gemini 3 Pro: classify companies."""
+        data: list[dict[str, str]] = load_csv("companies.csv")[:5]
+        model = Model(
+            provider="google_genai", name="gemini-3-pro-preview",
+            api_key=GEMINI_KEY,
+        )
+        job = Job(
+            prompt="Classify each company by its primary industry sector and sub-sector. "
+            "Determine if the company is publicly traded.",
+            output_model=IndustryClassification,
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[IndustryClassification] = job.run(model, data=data)
+        print_result_summary("Gemini", "gemini-3-pro-preview", result)
+        assert_result_valid(result, len(data), IndustryClassification)
+
+    @skip_no_gemini
+    def test_gemini3_flash_ticket_triage(self) -> None:
+        """Gemini 3 Flash: triage support tickets."""
+        data: list[dict[str, str]] = load_csv("support_tickets.csv")
+        model = Model(
+            provider="google_genai", name="gemini-3-flash-preview",
+            api_key=GEMINI_KEY,
+        )
+        job = Job(
+            prompt="Triage each support ticket. Classify by category, assign priority, "
+            "determine if human escalation is needed, and suggest a brief response.",
+            output_model=TicketTriage,
+            batch_size=5,
+            concurrency=2,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[TicketTriage] = job.run(model, data=data)
+        print_result_summary("Gemini", "gemini-3-flash-preview", result)
+        assert_result_valid(result, len(data), TicketTriage)
+
+    @skip_no_gemini
+    def test_gemini3_flash_full_dataset(self) -> None:
+        """Gemini 3 Flash: full dataset, multi-batch, concurrent."""
+        data: list[dict[str, str]] = load_csv("companies.csv")
+        model = Model(
+            provider="google_genai", name="gemini-3-flash-preview",
+            api_key=GEMINI_KEY,
+            params={"temperature": 0},
+        )
+        job = Job(
+            prompt="Create a concise structured summary for each company. "
+            "Calculate age based on founded year (current year is 2026).",
+            output_model=CompanySummary,
+            batch_size=4,
+            concurrency=3,
+            stop_on_exhaustion=False,
+        )
+        result: SmeltResult[CompanySummary] = job.run(model, data=data)
+        print_result_summary("Gemini", "gemini-3-flash (batch=4, conc=3)", result)
+        assert_result_valid(result, len(data), CompanySummary)
+        assert result.metrics.total_batches == 3
+
+
+# ===========================================================================
 # Cross-provider comparison tests (latest models)
 # ===========================================================================
 
@@ -1144,9 +1432,9 @@ class TestCrossProviderLatest:
         data: list[dict[str, str]] = load_csv("companies.csv")[:5]
 
         providers: list[tuple[str, str, str | None]] = [
-            ("openai", "gpt-4.1-mini", OPENAI_KEY),
-            ("anthropic", "claude-sonnet-4-20250514", ANTHROPIC_KEY),
-            ("google_genai", "gemini-2.5-flash", GEMINI_KEY),
+            ("openai", "gpt-5.2", OPENAI_KEY),
+            ("anthropic", "claude-sonnet-4-6", ANTHROPIC_KEY),
+            ("google_genai", "gemini-3-flash-preview", GEMINI_KEY),
         ]
 
         for provider, model_name, key in providers:

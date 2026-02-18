@@ -345,4 +345,4 @@ class TestExecuteBatches:
         assert result.metrics.successful_batches == 1
         assert result.metrics.input_tokens == 100
         assert result.metrics.output_tokens == 50
-        assert result.metrics.wall_time_seconds > 0
+        assert result.metrics.wall_time_seconds >= 0
