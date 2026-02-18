@@ -48,7 +48,10 @@ Requires Python 3.10+.
 ```mermaid
 flowchart LR
     A["list[dict]"] --> B["Tag rows\nwith row_id"]
-    B --> C["Split into\nbatches"]
+    B --> S{"shuffle?"}
+    S -->|Yes| Sh["Shuffle\ntagged rows"]
+    S -->|No| C
+    Sh --> C["Split into\nbatches"]
     C --> D["Concurrent\nLLM calls"]
     D --> E["Validate\nschema + IDs"]
     E --> F["Reorder by\nrow_id"]
@@ -70,7 +73,7 @@ sequenceDiagram
     User->>Job: job.run(model, data)
     Job->>BatchEngine: execute_batches()
 
-    Note over BatchEngine: Tag rows with row_id<br/>Create internal Pydantic model<br/>Build system prompt<br/>Split into batches
+    Note over BatchEngine: Tag rows with row_id<br/>Shuffle if enabled<br/>Create internal Pydantic model<br/>Build system prompt<br/>Split into batches
 
     par Batch 0
         BatchEngine->>LLM: [system_msg, human_msg]
