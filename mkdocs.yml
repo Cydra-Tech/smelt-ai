@@ -30,6 +30,7 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.top
+    - navigation.expand
     - search.suggest
     - search.highlight
     - toc.follow
@@ -44,12 +45,21 @@ nav:
   - Guide:
       - Architecture: guide/architecture.md
       - Batching & Concurrency: guide/batching.md
+      - Writing Prompts: guide/prompts.md
       - Error Handling: guide/errors.md
+      - Providers: guide/providers.md
+  - Cookbook:
+      - Classification: cookbook/classification.md
+      - Sentiment Analysis: cookbook/sentiment.md
+      - Data Extraction: cookbook/extraction.md
+      - Data Enrichment: cookbook/enrichment.md
+      - Advanced Patterns: cookbook/advanced.md
   - API Reference:
       - Model: api/model.md
       - Job: api/job.md
       - Results & Metrics: api/results.md
       - Errors: api/errors.md
+  - Changelog: changelog.md
 
 plugins:
   - search

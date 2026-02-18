@@ -2,7 +2,19 @@
 
 ## How batching works
 
-Smelt splits your input data into fixed-size batches and sends each batch as a single LLM request. This is more efficient than one-row-at-a-time calls and gives the LLM context about related rows.
+Smelt splits your input data into fixed-size batches and sends each batch as a single LLM request. Each batch is an independent LLM call containing multiple rows of data.
+
+```python
+# 100 rows, batch_size=20 → 5 LLM calls
+# 100 rows, batch_size=10 → 10 LLM calls
+# 100 rows, batch_size=1  → 100 LLM calls
+```
+
+**Why batch?** Sending multiple rows per call:
+
+- **Reduces overhead** — fewer API calls, less network latency
+- **Shares context** — the LLM can use cross-row context for better results
+- **Lowers cost** — the system prompt (which is identical across calls) is sent fewer times
 
 ```python
 job = Job(
@@ -38,42 +50,128 @@ gantt
     1 slot occupied        :s2, 3, 4
 ```
 
+With `concurrency=3`:
+
+- Batches 0, 1, and 2 start immediately (3 semaphore slots)
+- When batch 2 finishes, its slot is freed — but there are no more batches in this example
+- With more batches, batch 3 would start as soon as any of the first 3 finishes
+
 ## Tuning batch_size
 
-| Batch size | Trade-off |
-|---|---|
-| **Small (1–5)** | More LLM calls, higher overhead, but each call is simpler. Good for complex schemas. |
-| **Medium (10–20)** | Good balance for most workloads. |
-| **Large (50+)** | Fewer calls, but risk hitting token limits. LLM may struggle with many rows. |
+| Batch size | Pros | Cons | Best for |
+|---|---|---|---|
+| **1** | Simplest for the LLM, lowest per-call token count | Highest overhead, most API calls | Very complex schemas, debugging |
+| **5** | Good for complex schemas | More calls than needed for simple tasks | Complex output with many fields |
+| **10** (default) | Good balance | — | Most workloads |
+| **20–30** | Fewer API calls, better cross-row context | Longer responses, higher per-call cost | Simple schemas, large datasets |
+| **50+** | Fewest calls | Risk hitting token limits, LLM may lose track of rows | Only simple schemas with short rows |
 
-!!! tip
-    Start with `batch_size=10` and adjust based on your schema complexity and token usage in `result.metrics`.
+!!! tip "How to choose"
+    Start with `batch_size=10`. Then check `result.metrics`:
+
+    - If `output_tokens` per batch is very high → decrease batch_size
+    - If `wall_time_seconds` is dominated by many small calls → increase batch_size
+    - If you see validation errors (wrong row count) → decrease batch_size
+
+!!! warning "Token limits"
+    Each batch is a single LLM call. The input tokens include the system prompt + all rows in the batch. The output includes structured JSON for all rows. Very large batches may exceed the model's context window or output token limit, causing failures.
+
+### Example: Finding the right batch_size
+
+```python
+# Start with default
+job = Job(prompt="...", output_model=MyModel, batch_size=10)
+result = job.run(model, data=data)
+
+print(f"Batches: {result.metrics.total_batches}")
+print(f"Tokens per batch: ~{result.metrics.input_tokens // result.metrics.total_batches} in, "
+      f"~{result.metrics.output_tokens // result.metrics.total_batches} out")
+print(f"Retries: {result.metrics.total_retries}")
+print(f"Time: {result.metrics.wall_time_seconds:.2f}s")
+
+# If tokens per batch are low and retries are 0, try increasing:
+job = Job(prompt="...", output_model=MyModel, batch_size=25)
+# If retries are high, try decreasing:
+job = Job(prompt="...", output_model=MyModel, batch_size=5)
+```
 
 ## Tuning concurrency
 
-| Concurrency | Trade-off |
-|---|---|
-| **1** | Serial execution. Safest for rate-limited APIs. |
-| **3** | Good default. Balances throughput with rate limit headroom. |
-| **10+** | High throughput, but may trigger rate limits (429 errors). Smelt retries these automatically. |
+| Concurrency | Behavior | Best for |
+|---|---|---|
+| **1** | Serial — one batch at a time | Rate-limited APIs, debugging, reproducibility |
+| **3** (default) | Moderate parallelism | Most workloads |
+| **5–10** | High throughput | Large datasets, high-tier API plans |
+| **10+** | Maximum throughput | Only if your API plan supports it |
+
+!!! warning "Rate limits"
+    Higher concurrency means more simultaneous API requests. If your API plan has low rate limits, you may trigger 429 (Too Many Requests) errors. Smelt retries these automatically with exponential backoff, but it's more efficient to set concurrency within your rate limit.
+
+### Concurrency vs batch_size interaction
+
+The total throughput is:
+
+```
+rows/second ≈ concurrency × batch_size / avg_response_time
+```
+
+Example configurations for 1000 rows:
+
+| Config | Batches | Concurrent | Behavior |
+|---|---|---|---|
+| `batch_size=10, concurrency=1` | 100 | 1 at a time | Safe but slow |
+| `batch_size=10, concurrency=5` | 100 | 5 at a time | Good balance |
+| `batch_size=50, concurrency=3` | 20 | 3 at a time | Fewer, larger calls |
+| `batch_size=1, concurrency=20` | 1000 | 20 at a time | Fast but heavy on API |
 
 ## Shuffle
 
-Shuffling randomizes row order before batching. This can help when:
-
-- Input data has clusters of similar rows (e.g. sorted by category)
-- You want to distribute "hard" rows across batches to avoid one batch failing disprally
+Shuffling randomizes row order before splitting into batches. The final `result.data` is **always** returned in original input order regardless of shuffle.
 
 ```python
 job = Job(
     prompt="...",
     output_model=MyModel,
-    shuffle=True,  # Randomize before batching
+    shuffle=True,
 )
 ```
 
-!!! note
-    Shuffling only affects how rows are grouped into batches. The final `result.data` is **always** returned in original input order.
+### When to use shuffle
+
+**Use shuffle when your data has clusters of similar rows:**
+
+```python
+# Without shuffle — batch 0 gets all tech companies, batch 1 gets all banks
+data = [
+    {"name": "Apple", "type": "tech"},      # batch 0
+    {"name": "Google", "type": "tech"},     # batch 0
+    {"name": "Meta", "type": "tech"},       # batch 0
+    {"name": "JPMorgan", "type": "bank"},   # batch 1
+    {"name": "Goldman", "type": "bank"},    # batch 1
+    {"name": "Citi", "type": "bank"},       # batch 1
+]
+
+# With shuffle — rows are mixed across batches
+# This gives the LLM more diverse context per batch
+```
+
+**Use shuffle to distribute "hard" rows:**
+
+If some rows consistently cause validation failures, shuffling distributes them across batches so one batch doesn't accumulate all the difficult cases.
+
+**Don't use shuffle when:**
+
+- Order doesn't matter (most cases)
+- You want deterministic batching for debugging
+- Row context within a batch matters (e.g. time-series data)
+
+### How shuffle works internally
+
+1. Tagged rows are copied (original list is never modified)
+2. The copy is shuffled using `random.shuffle()`
+3. Shuffled rows are split into batches
+4. After processing, all rows are sorted by `row_id` before returning
+5. `result.data` is in the exact same order as your input `data`
 
 ## Retry & backoff
 
@@ -102,24 +200,63 @@ flowchart TD
     style Fail fill:#f99,stroke:#333
 ```
 
-**Retriable errors:**
+### Retriable errors
 
-- Validation/parse errors (bad schema from LLM)
-- HTTP 429 (rate limit)
-- HTTP 5xx (server errors)
-- Timeouts and connection errors
+These errors trigger retries (up to `max_retries`):
 
-**Non-retriable errors (fail immediately):**
+| Error type | Examples |
+|---|---|
+| **Validation errors** | Wrong row count, missing/duplicate row IDs, schema mismatch |
+| **Parse errors** | LLM returned malformed JSON |
+| **HTTP 429** | Rate limit exceeded |
+| **HTTP 5xx** | Server error (500, 502, 503, 504) |
+| **Timeouts** | Request timed out |
+| **Connection errors** | Network failure |
 
-- HTTP 400 (bad request)
-- HTTP 401 (unauthorized)
-- HTTP 403 (forbidden)
+### Non-retriable errors
 
-Backoff formula: `1s × 2^attempt + random jitter`, capped at 60 seconds.
+These errors fail the batch immediately without retrying:
+
+| Error type | Examples |
+|---|---|
+| **HTTP 400** | Bad request (malformed input) |
+| **HTTP 401** | Unauthorized (invalid API key) |
+| **HTTP 403** | Forbidden (insufficient permissions) |
+
+### Backoff formula
+
+```
+delay = min(1s × 2^attempt + random_jitter, 60s)
+```
+
+| Attempt | Base delay | With jitter (approx) |
+|---|---|---|
+| 0 (first retry) | 1s | 1.0–1.1s |
+| 1 | 2s | 2.0–2.2s |
+| 2 | 4s | 4.0–4.4s |
+| 3 | 8s | 8.0–8.8s |
+| 4 | 16s | 16.0–17.6s |
+| 5+ | 32–60s | Capped at 60s |
+
+### Tuning max_retries
+
+```python
+# Strict — fail fast (good for debugging)
+job = Job(prompt="...", output_model=MyModel, max_retries=0)
+
+# Default — 3 retries (handles most transient failures)
+job = Job(prompt="...", output_model=MyModel, max_retries=3)
+
+# Lenient — 5 retries (for unreliable networks or aggressive rate limits)
+job = Job(prompt="...", output_model=MyModel, max_retries=5)
+```
+
+!!! info "Total attempts"
+    `max_retries=3` means 4 total attempts (1 initial + 3 retries). The maximum wait time for a single batch with `max_retries=3` is about 7 seconds of backoff.
 
 ## Metrics
 
-After a run, inspect `result.metrics` for tuning:
+After a run, inspect `result.metrics` for tuning insights:
 
 ```python
 result = job.run(model, data=data)
@@ -130,4 +267,20 @@ print(f"Batches: {m.successful_batches}/{m.total_batches}")
 print(f"Retries: {m.total_retries}")
 print(f"Tokens: {m.input_tokens:,} in / {m.output_tokens:,} out")
 print(f"Time: {m.wall_time_seconds:.2f}s")
+
+# Derived metrics
+if m.total_batches > 0:
+    print(f"Avg tokens/batch: {m.input_tokens // m.total_batches} in, "
+          f"{m.output_tokens // m.total_batches} out")
+if m.wall_time_seconds > 0:
+    print(f"Throughput: {m.successful_rows / m.wall_time_seconds:.1f} rows/sec")
 ```
+
+### What to look for
+
+| Metric | Red flag | Action |
+|---|---|---|
+| `total_retries > 0` | Some batches needed retries | Check if validation errors → simplify schema or reduce batch_size |
+| `failed_batches > 0` | Some batches failed entirely | Check `result.errors` for details |
+| `wall_time_seconds` high | Slow throughput | Increase concurrency or batch_size |
+| High `input_tokens` | Expensive system prompt sent many times | Increase batch_size to reduce batch count |
