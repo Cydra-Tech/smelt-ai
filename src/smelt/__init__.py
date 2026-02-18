@@ -31,7 +31,7 @@ from smelt.job import Job
 from smelt.model import Model
 from smelt.types import BatchError, SmeltMetrics, SmeltResult
 
-__version__: str = "0.1.2"
+__version__: str = "0.1.3"
 
 __all__: list[str] = [
     "Model",

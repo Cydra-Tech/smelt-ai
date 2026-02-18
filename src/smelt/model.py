@@ -19,8 +19,9 @@ from smelt.errors import SmeltConfigError
 class Model:
     """Configuration for an LLM provider used by smelt.
 
-    Lazily initializes the underlying LangChain chat model on first use
-    and caches it for subsequent calls.
+    Creates a fresh LangChain chat model on each call to :meth:`get_chat_model`.
+    This avoids stale event-loop state when multiple ``asyncio.run()`` calls
+    reuse the same ``Model`` instance (e.g. ``job.test()`` followed by ``job.run()``).
 
     Attributes:
         provider: The LangChain model provider identifier (e.g. "openai", "anthropic").
@@ -39,10 +40,13 @@ class Model:
     name: str
     api_key: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
-    _chat_model: BaseChatModel | None = field(default=None, init=False, repr=False, compare=False)
 
     def get_chat_model(self) -> BaseChatModel:
-        """Return the LangChain chat model, initializing it on first call.
+        """Return a fresh LangChain chat model instance.
+
+        A new instance is created on each call to avoid stale HTTP client
+        state across event loops (e.g. when calling ``job.test()`` then
+        ``job.run()`` in the same script).
 
         Returns:
             The initialized ``BaseChatModel`` instance.
@@ -51,15 +55,12 @@ class Model:
             SmeltConfigError: If the model provider cannot be initialized
                 (e.g. missing provider package, invalid credentials).
         """
-        if self._chat_model is not None:
-            return self._chat_model
-
         try:
             kwargs: dict[str, Any] = {**self.params}
             if self.api_key is not None:
                 kwargs["api_key"] = self.api_key
 
-            self._chat_model = init_chat_model(
+            return init_chat_model(
                 model=self.name,
                 model_provider=self.provider,
                 **kwargs,
@@ -68,5 +69,3 @@ class Model:
             raise SmeltConfigError(
                 f"Failed to initialize model '{self.name}' with provider '{self.provider}': {exc}"
             ) from exc
-
-        return self._chat_model
