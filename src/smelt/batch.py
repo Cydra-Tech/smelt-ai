@@ -188,6 +188,7 @@ async def execute_batches(
     batch_size: int,
     concurrency: int,
     max_retries: int,
+    shuffle: bool,
     stop_on_exhaustion: bool,
 ) -> SmeltResult[T]:
     """Execute the full batch processing pipeline.
@@ -203,6 +204,8 @@ async def execute_batches(
         batch_size: Number of rows per batch.
         concurrency: Maximum number of concurrent batch requests.
         max_retries: Maximum retry attempts per batch.
+        shuffle: If ``True``, shuffles tagged rows before splitting into batches.
+            Row ordering in the final result is unaffected.
         stop_on_exhaustion: If ``True``, raises ``SmeltExhaustionError``
             when any batch exhausts its retries.
 
@@ -218,6 +221,10 @@ async def execute_batches(
     tagged_rows: list[_TaggedRow] = [
         _TaggedRow(row_id=i, data=row) for i, row in enumerate(data)
     ]
+
+    if shuffle:
+        tagged_rows = tagged_rows.copy()
+        random.shuffle(tagged_rows)
 
     internal_model: Type[BaseModel] = create_internal_model(output_model)
     batch_wrapper: Type[BaseModel] = create_batch_wrapper(internal_model)

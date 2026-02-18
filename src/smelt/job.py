@@ -34,6 +34,9 @@ class Job:
         batch_size: Number of input rows per LLM request. Defaults to 10.
         concurrency: Maximum number of concurrent batch requests. Defaults to 3.
         max_retries: Maximum retry attempts per failed batch. Defaults to 3.
+        shuffle: If ``True``, shuffles the input rows before splitting into
+            batches. Row ordering in the final result is unaffected — results
+            are always returned in original input order. Defaults to ``False``.
         stop_on_exhaustion: If ``True`` (default), raises ``SmeltExhaustionError``
             when any batch exhausts its retries. If ``False``, continues processing
             remaining batches and collects errors.
@@ -56,6 +59,7 @@ class Job:
     batch_size: int = 10
     concurrency: int = 3
     max_retries: int = 3
+    shuffle: bool = False
     stop_on_exhaustion: bool = True
 
     def __post_init__(self) -> None:
@@ -118,6 +122,7 @@ class Job:
             batch_size=self.batch_size,
             concurrency=self.concurrency,
             max_retries=self.max_retries,
+            shuffle=self.shuffle,
             stop_on_exhaustion=self.stop_on_exhaustion,
         )
 

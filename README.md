@@ -265,6 +265,7 @@ job = Job(
     batch_size=10,                 # Rows per LLM request (default: 10)
     concurrency=3,                 # Max concurrent requests (default: 3)
     max_retries=3,                 # Retries per failed batch (default: 3)
+    shuffle=False,                 # Shuffle rows before batching (default: False)
     stop_on_exhaustion=True,       # Raise on failure vs collect errors (default: True)
 )
 ```

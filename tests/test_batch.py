@@ -271,6 +271,7 @@ class TestExecuteBatches:
             batch_size=10,
             concurrency=1,
             max_retries=3,
+            shuffle=False,
             stop_on_exhaustion=False,
         )
 
@@ -306,6 +307,7 @@ class TestExecuteBatches:
             batch_size=2,
             concurrency=2,
             max_retries=0,
+            shuffle=False,
             stop_on_exhaustion=False,
         )
 
@@ -333,6 +335,7 @@ class TestExecuteBatches:
             batch_size=10,
             concurrency=1,
             max_retries=0,
+            shuffle=False,
             stop_on_exhaustion=False,
         )
 

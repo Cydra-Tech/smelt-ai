@@ -90,6 +90,7 @@ class TestJobRun:
                 batch_size=5,
                 concurrency=2,
                 max_retries=1,
+                shuffle=False,
                 stop_on_exhaustion=False,
             )
             assert result.success
