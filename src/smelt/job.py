@@ -96,6 +96,71 @@ class Job:
 
         self._validated = True
 
+    async def atest(self, model: Model, *, data: list[dict[str, Any]]) -> SmeltResult[Any]:
+        """Run a single-row test to validate setup before a full run.
+
+        Takes only the first row from ``data``, ignores shuffle, and uses
+        ``batch_size=1``, ``concurrency=1``. Useful for quickly verifying
+        that the prompt, model, and output schema work together.
+
+        Args:
+            model: The :class:`~smelt.model.Model` configuration for the LLM.
+            data: Input rows as a list of dictionaries. Only the first row is used.
+
+        Returns:
+            A :class:`~smelt.types.SmeltResult` containing the single transformed row.
+
+        Raises:
+            SmeltConfigError: If data is empty or the model cannot be initialized.
+            SmeltExhaustionError: If ``stop_on_exhaustion`` is ``True`` and
+                the batch exhausts all retries.
+        """
+        if not data:
+            raise SmeltConfigError("data must contain at least one row.")
+
+        chat_model = model.get_chat_model()
+
+        return await execute_batches(
+            chat_model=chat_model,
+            user_prompt=self.prompt,
+            output_model=self.output_model,
+            data=data[:1],
+            batch_size=1,
+            concurrency=1,
+            max_retries=self.max_retries,
+            shuffle=False,
+            stop_on_exhaustion=self.stop_on_exhaustion,
+        )
+
+    def test(self, model: Model, *, data: list[dict[str, Any]]) -> SmeltResult[Any]:
+        """Run a single-row test synchronously.
+
+        Convenience wrapper around :meth:`atest`.
+
+        Args:
+            model: The :class:`~smelt.model.Model` configuration for the LLM.
+            data: Input rows as a list of dictionaries. Only the first row is used.
+
+        Returns:
+            A :class:`~smelt.types.SmeltResult` containing the single transformed row.
+
+        Raises:
+            RuntimeError: If called from within an already-running event loop.
+                Use :meth:`atest` instead in async contexts.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            raise RuntimeError(
+                "job.test() cannot be called from an async context. "
+                "Use 'await job.atest(...)' instead."
+            )
+
+        return asyncio.run(self.atest(model, data=data))
+
     async def arun(self, model: Model, *, data: list[dict[str, Any]]) -> SmeltResult[Any]:
         """Run the transformation job asynchronously.
 

@@ -123,3 +123,91 @@ class TestJobRun:
 
         with pytest.raises(RuntimeError, match="cannot be called from an async context"):
             job.run(mock_model, data=[])
+
+
+class TestJobTest:
+    """Tests for Job.test and Job.atest."""
+
+    @pytest.mark.asyncio
+    async def test_atest_uses_first_row_only(self) -> None:
+        """atest should only send the first row to execute_batches."""
+        job = Job(
+            prompt="classify",
+            output_model=SampleOutput,
+            batch_size=20,
+            concurrency=5,
+            shuffle=True,
+        )
+
+        mock_result: SmeltResult[SampleOutput] = SmeltResult(
+            data=[SampleOutput(category="tech", confidence=0.9)],
+            errors=[],
+            metrics=SmeltMetrics(total_rows=1, successful_rows=1),
+        )
+
+        mock_model = MagicMock(spec=Model)
+        mock_chat_model = MagicMock()
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        with patch("smelt.job.execute_batches", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_result
+            result = await job.atest(
+                mock_model,
+                data=[{"name": "Apple"}, {"name": "Google"}, {"name": "Pfizer"}],
+            )
+
+            mock_exec.assert_called_once_with(
+                chat_model=mock_chat_model,
+                user_prompt="classify",
+                output_model=SampleOutput,
+                data=[{"name": "Apple"}],
+                batch_size=1,
+                concurrency=1,
+                max_retries=3,
+                shuffle=False,
+                stop_on_exhaustion=True,
+            )
+            assert result.success
+            assert len(result.data) == 1
+
+    @pytest.mark.asyncio
+    async def test_atest_empty_data_raises(self) -> None:
+        """atest should raise SmeltConfigError if data is empty."""
+        job = Job(prompt="classify", output_model=SampleOutput)
+        mock_model = MagicMock(spec=Model)
+
+        with pytest.raises(SmeltConfigError, match="at least one row"):
+            await job.atest(mock_model, data=[])
+
+    def test_test_sync_wrapper(self) -> None:
+        """test should call atest via asyncio.run."""
+        job = Job(prompt="classify", output_model=SampleOutput)
+
+        mock_result: SmeltResult[SampleOutput] = SmeltResult(
+            data=[SampleOutput(category="tech", confidence=0.9)],
+        )
+
+        mock_model = MagicMock(spec=Model)
+        mock_chat_model = MagicMock()
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        with patch("smelt.job.execute_batches", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_result
+            result = job.test(
+                mock_model,
+                data=[{"name": "Apple"}, {"name": "Google"}],
+            )
+
+            # Should only pass first row
+            call_data = mock_exec.call_args.kwargs["data"]
+            assert call_data == [{"name": "Apple"}]
+            assert result.success
+
+    @pytest.mark.asyncio
+    async def test_test_from_async_raises(self) -> None:
+        """test() should raise RuntimeError when called from async context."""
+        job = Job(prompt="classify", output_model=SampleOutput)
+        mock_model = MagicMock(spec=Model)
+
+        with pytest.raises(RuntimeError, match="cannot be called from an async context"):
+            job.test(mock_model, data=[{"name": "Apple"}])

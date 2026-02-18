@@ -285,6 +285,17 @@ result = await job.arun(model, data=rows)
 
 > **Note:** `job.run()` cannot be called from within an async event loop (e.g. Jupyter). Use `await job.arun()` in those contexts.
 
+Test with a single row before committing to a full run:
+
+```python
+# Quick validation — runs only the first row, ignores shuffle/batch_size/concurrency
+result = job.test(model, data=rows)
+print(result.data[0])  # see one sample output
+
+# Async version
+result = await job.atest(model, data=rows)
+```
+
 ### `SmeltResult[T]`
 
 ```python
