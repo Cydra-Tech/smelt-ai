@@ -1,5 +1,5 @@
 [project]
-name = "smelt"
+name = "smelt-ai"
 version = "0.1.0"
 description = "LLM-powered structured data transformation"
 requires-python = ">=3.10"

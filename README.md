@@ -1,4 +1,4 @@
-# Smelt
+# Smelt AI
 
 LLM-powered structured data transformation. Feed in rows of data, get back strictly typed Pydantic models — batched, concurrent, and validated.
 
@@ -32,9 +32,9 @@ for row in result.data:
 ## Install
 
 ```bash
-pip install smelt[openai]      # OpenAI models
-pip install smelt[anthropic]   # Anthropic models
-pip install smelt[google]      # Google Gemini models
+pip install smelt-ai[openai]      # OpenAI models
+pip install smelt-ai[anthropic]   # Anthropic models
+pip install smelt-ai[google]      # Google Gemini models
 ```
 
 Requires Python 3.10+.
@@ -375,7 +375,7 @@ src/smelt/
 ## Development
 
 ```bash
-git clone https://github.com/Cydra-Tech/smelt.git
+git clone https://github.com/Cydra-Tech/smelt-ai.git
 cd smelt
 uv sync --all-extras
 
