@@ -1,5 +1,9 @@
 # Smelt AI
 
+<p align="center">
+  <img src="assets/banner.png" alt="smelt-ai banner" width="100%">
+</p>
+
 [![PyPI](https://img.shields.io/pypi/v/smelt-ai)](https://pypi.org/project/smelt-ai/)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://cydra-tech.github.io/smelt-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
