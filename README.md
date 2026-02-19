@@ -1,7 +1,7 @@
 # Smelt AI
 
 <p align="center">
-  <img src="assets/banner.png" alt="smelt-ai banner" width="100%">
+  <img src="assets/smelt-ai-banner.png" alt="smelt-ai banner" width="100%">
 </p>
 
 [![PyPI](https://img.shields.io/pypi/v/smelt-ai)](https://pypi.org/project/smelt-ai/)
