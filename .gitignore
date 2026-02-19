@@ -34,6 +34,9 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
+# Sandbox
+sbox/
+
 # Docs
 site/
 
