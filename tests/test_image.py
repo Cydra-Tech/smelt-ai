@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from unittest.mock import patch
 
 import pytest
@@ -135,6 +136,21 @@ class TestDetectImageFormat:
         img.format = "JPEG"
         assert _detect_image_format(img) == "jpeg"
 
+    def test_grayscale_defaults_to_jpeg(self) -> None:
+        """Grayscale (L) images without format should default to jpeg."""
+        img = Image.new("L", (10, 10), color=128)
+        assert _detect_image_format(img) == "jpeg"
+
+    def test_palette_mode_defaults_to_jpeg(self) -> None:
+        """Palette (P) mode images without format should default to jpeg."""
+        img = Image.new("P", (10, 10))
+        assert _detect_image_format(img) == "jpeg"
+
+    def test_la_mode_defaults_to_png(self) -> None:
+        """LA (grayscale + alpha) mode images should default to png."""
+        img = Image.new("LA", (10, 10))
+        assert _detect_image_format(img) == "png"
+
 
 # ---------------------------------------------------------------------------
 # TestEncodeImageToBase64
@@ -175,8 +191,6 @@ class TestEncodeImageToBase64:
 
     def test_roundtrip_rgb(self) -> None:
         """Should be able to decode base64 back to a valid image."""
-        import io
-
         img = _make_rgb_image(20, 20)
         b64, _ = encode_image_to_base64(img)
         decoded_bytes: bytes = base64.b64decode(b64)
@@ -185,13 +199,38 @@ class TestEncodeImageToBase64:
 
     def test_roundtrip_rgba(self) -> None:
         """Should be able to decode base64 back to a valid PNG image."""
-        import io
-
         img = _make_rgba_image(15, 15)
         b64, _ = encode_image_to_base64(img)
         decoded_bytes: bytes = base64.b64decode(b64)
         restored: Image.Image = Image.open(io.BytesIO(decoded_bytes))
         assert restored.size == (15, 15)
+
+    def test_palette_mode_encodes_without_error(self) -> None:
+        """Palette (P) mode images should be converted and encoded."""
+        img = Image.new("P", (10, 10))
+        b64, mime = encode_image_to_base64(img)
+        assert len(b64) > 0
+        assert mime == "image/jpeg"
+
+    def test_grayscale_mode_encodes(self) -> None:
+        """Grayscale (L) mode images should encode as JPEG."""
+        img = Image.new("L", (10, 10), color=128)
+        b64, mime = encode_image_to_base64(img)
+        assert mime == "image/jpeg"
+        assert len(b64) > 0
+
+    def test_la_mode_encodes_as_png(self) -> None:
+        """LA (grayscale + alpha) mode images should encode as PNG."""
+        img = Image.new("LA", (10, 10))
+        b64, mime = encode_image_to_base64(img)
+        assert mime == "image/png"
+        assert len(b64) > 0
+
+    def test_encode_raises_when_pillow_missing(self) -> None:
+        """Should raise ImportError when Pillow is not installed."""
+        with patch("smelt.image.PILLOW_AVAILABLE", False):
+            with pytest.raises(ImportError, match="smelt-ai\\[vision\\]"):
+                encode_image_to_base64(_make_rgb_image())
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +262,16 @@ class TestBatchHasImages:
     def test_empty_rows(self) -> None:
         """Should return False for an empty list."""
         assert batch_has_images([]) is False
+
+    def test_none_values_in_rows(self) -> None:
+        """Should handle None values in row dicts without error."""
+        rows = [{"photo": None, "name": "Alice"}]
+        assert batch_has_images(rows) is False
+
+    def test_empty_dict_rows(self) -> None:
+        """Should handle rows with empty dicts."""
+        rows = [{}]
+        assert batch_has_images(rows) is False
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +369,20 @@ class TestExtractImagesFromRows:
         cleaned, _ = extract_images_from_rows(rows)
         assert cleaned[0].row_id == 5
         assert cleaned[1].row_id == 10
+
+    def test_empty_input_returns_empty(self) -> None:
+        """Empty tagged_rows should return empty results."""
+        cleaned, refs = extract_images_from_rows([])
+        assert cleaned == []
+        assert refs == []
+
+    def test_row_with_empty_data(self) -> None:
+        """Row with empty data dict should pass through."""
+        rows = [_TaggedRow(row_id=0, data={})]
+        cleaned, refs = extract_images_from_rows(rows)
+        assert len(cleaned) == 1
+        assert cleaned[0].data == {}
+        assert refs == []
 
     def test_image_ref_is_frozen(self) -> None:
         """_ImageRef should be immutable."""

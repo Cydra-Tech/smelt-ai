@@ -51,11 +51,14 @@ def is_pil_image(value: Any) -> bool:
     return isinstance(value, PILImage.Image)
 
 
+_ALPHA_MODES: frozenset[str] = frozenset({"RGBA", "LA", "PA"})
+
+
 def _detect_image_format(image: Any) -> str:
     """Detect the image format suitable for encoding.
 
     Uses the image's ``format`` attribute if set, otherwise infers from
-    the image mode (RGBA → png, everything else → jpeg).
+    the image mode (modes with alpha → png, everything else → jpeg).
 
     Args:
         image: A PIL Image instance.
@@ -69,7 +72,7 @@ def _detect_image_format(image: Any) -> str:
         if normalized == "jpg":
             return "jpeg"
         return normalized
-    return "png" if image.mode == "RGBA" else "jpeg"
+    return "png" if image.mode in _ALPHA_MODES else "jpeg"
 
 
 def encode_image_to_base64(image: Any) -> tuple[str, str]:
@@ -91,8 +94,15 @@ def encode_image_to_base64(image: Any) -> tuple[str, str]:
     _require_pillow()
     fmt: str = _detect_image_format(image)
     save_format: str = fmt.upper()
-    if save_format == "JPEG" and image.mode == "RGBA":
+
+    # Convert modes incompatible with the target format
+    if save_format == "JPEG" and image.mode in _ALPHA_MODES:
         image = image.convert("RGB")
+    elif save_format == "JPEG" and image.mode not in ("RGB", "L", "CMYK"):
+        image = image.convert("RGB")
+    elif save_format == "PNG" and image.mode not in ("RGB", "RGBA", "L", "LA", "P", "PA", "I"):
+        image = image.convert("RGBA")
+
     buffer: io.BytesIO = io.BytesIO()
     image.save(buffer, format=save_format)
     b64_string: str = base64.b64encode(buffer.getvalue()).decode("utf-8")

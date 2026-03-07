@@ -426,6 +426,30 @@ class TestExecuteBatchesWithImages:
             )
 
     @pytest.mark.asyncio
+    async def test_warning_emitted_at_boundary_batch_size_6(self) -> None:
+        """Should emit UserWarning when batch_size=6 (boundary, > 5) with images."""
+        internal = create_internal_model(SampleOutput)
+        wrapper = create_batch_wrapper(internal)
+
+        parsed = wrapper(rows=[
+            {"row_id": 0, "category": "normal", "confidence": 0.9},
+        ])
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        with pytest.warns(UserWarning, match="batch_size=6"):
+            await execute_batches(
+                chat_model=mock_chat,
+                user_prompt="analyze",
+                output_model=SampleOutput,
+                data=[{"ecg": _make_test_image()}],
+                batch_size=6,
+                concurrency=1,
+                max_retries=0,
+                shuffle=False,
+                stop_on_exhaustion=False,
+            )
+
+    @pytest.mark.asyncio
     async def test_no_warning_for_small_batch_with_images(self) -> None:
         """Should NOT emit UserWarning when batch_size <= 5 with images."""
         internal = create_internal_model(SampleOutput)
