@@ -279,7 +279,8 @@ src/smelt/
 ├── model.py           # Model — wraps LangChain's init_chat_model
 ├── job.py             # Job — defines transformation + run/arun/test/atest
 ├── batch.py           # Async batch engine: concurrency, retry, orchestration
-├── prompt.py          # System/human message construction
+├── prompt.py          # System/human message construction (text + multimodal)
+├── image.py           # PIL image detection, base64 encoding, extraction
 ├── validation.py      # Dynamic Pydantic model creation, row ID validation
 ├── types.py           # SmeltResult, SmeltMetrics, BatchError, internal types
 └── errors.py          # SmeltError hierarchy
@@ -289,8 +290,9 @@ src/smelt/
 |---|---|
 | `model.py` | Thin wrapper around `init_chat_model`. Lazy initialization + caching. |
 | `job.py` | User-facing entry point. Validates config, delegates to `batch.py`. |
-| `batch.py` | Core engine. Orchestrates the full pipeline: tag → split → concurrent execute → validate → reorder → assemble. |
-| `prompt.py` | Builds the system message (prompt + rules + schema) and human message (JSON data). |
+| `batch.py` | Core engine. Orchestrates the full pipeline: tag → split → concurrent execute → validate → reorder → assemble. Detects images and enables multimodal path. |
+| `prompt.py` | Builds the system message (prompt + rules + schema) and human message (JSON data or multimodal content blocks). |
+| `image.py` | PIL image utilities: detection (`is_pil_image`), base64 encoding, batch scanning, and image extraction with placeholder substitution. Optional Pillow dependency. |
 | `validation.py` | Creates internal Pydantic models with `row_id`, validates batch responses, strips `row_id` from results. |
 | `types.py` | Data containers: `SmeltResult`, `SmeltMetrics`, `BatchError`, and internal `_TaggedRow` / `_BatchResult`. |
 | `errors.py` | Exception hierarchy: `SmeltError` → `SmeltConfigError`, `SmeltValidationError`, `SmeltAPIError`, `SmeltExhaustionError`. |

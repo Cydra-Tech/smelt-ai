@@ -53,6 +53,7 @@ nav:
       - Sentiment Analysis: cookbook/sentiment.md
       - Data Extraction: cookbook/extraction.md
       - Data Enrichment: cookbook/enrichment.md
+      - Vision / Images: cookbook/vision.md
       - Advanced Patterns: cookbook/advanced.md
   - API Reference:
       - Model: api/model.md

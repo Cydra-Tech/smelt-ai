@@ -91,8 +91,8 @@ model = Model(
 
 | Model | Best for | Notes |
 |---|---|---|
+| `gemini-3.1-pro-preview` | Complex tasks, highest quality | Latest and most capable |
 | `gemini-3-flash-preview` | Most tasks — very fast, good quality | Best speed/quality ratio |
-| `gemini-3-pro-preview` | Complex tasks, highest quality | Slower but more capable |
 | `gemini-2.5-flash` | Budget-friendly, simple tasks | Previous generation, still good |
 
 ### Setup

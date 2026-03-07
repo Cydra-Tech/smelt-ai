@@ -2,6 +2,22 @@
 
 All notable changes to smelt-ai.
 
+## v0.2.0 — 2026-03-07
+
+### Added
+- **Vision / image support** — pass `PIL.Image.Image` objects directly in data dicts for vision-capable LLMs
+- New `smelt.image` module with image detection, base64 encoding, and extraction utilities
+- `PILLOW_AVAILABLE` flag exported from `smelt` package
+- `[vision]` optional dependency extra (`pip install smelt-ai[vision]`)
+- `has_images` parameter on `build_system_message()` for image-aware prompts
+- Multimodal content blocks in `build_human_message()` — auto-detects PIL images, replaces with placeholders, and appends base64-encoded image blocks
+- `UserWarning` when `batch_size > 5` with image data (large payloads)
+- Vision cookbook with ECG analysis example
+
+### Changed
+- `build_system_message()` now accepts optional `has_images` keyword argument (backward compatible)
+- `build_human_message()` returns multimodal content blocks when images are detected, plain text otherwise (backward compatible)
+
 ## v0.1.1 — 2025-02-18
 
 ### Added

@@ -1,6 +1,6 @@
 [project]
 name = "smelt-ai"
-version = "0.1.4"
+version = "0.2.0"
 description = "LLM-powered structured data transformation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,7 @@ Documentation = "https://cydra-tech.github.io/smelt-ai/"
 openai = ["langchain-openai"]
 anthropic = ["langchain-anthropic"]
 google = ["langchain-google-genai"]
+vision = ["Pillow>=9.0"]
 
 [build-system]
 requires = ["hatchling"]

@@ -42,7 +42,10 @@ for row in result.data:
 pip install smelt-ai[openai]      # OpenAI models
 pip install smelt-ai[anthropic]   # Anthropic models
 pip install smelt-ai[google]      # Google Gemini models
+pip install smelt-ai[vision]      # Image support (Pillow)
 ```
+
+Combine extras: `pip install smelt-ai[openai,vision]`
 
 Requires Python 3.10+.
 
@@ -60,6 +63,43 @@ list[dict] → Tag with row_id → Split into batches → Concurrent LLM calls �
 4. Each response is validated (schema, row IDs, count)
 5. Results are reordered to match original input order
 6. Everything is returned as a typed `SmeltResult` with metrics
+
+---
+
+## Vision (Image Support)
+
+Pass PIL images directly in your data dicts — smelt auto-detects them, base64-encodes, and sends multimodal content blocks to vision-capable LLMs.
+
+```bash
+pip install smelt-ai[anthropic,vision]
+```
+
+```python
+from PIL import Image
+from pydantic import BaseModel, Field
+from smelt import Model, Job
+
+class ECGAnalysis(BaseModel):
+    heart_rhythm: str = Field(description="Detected heart rhythm")
+    heart_rate_bpm: int = Field(description="Estimated heart rate in bpm")
+    abnormalities: list[str] = Field(description="List of detected abnormalities")
+
+model = Model(provider="anthropic", name="claude-sonnet-4-6")
+job = Job(
+    prompt="Analyze the ECG image and provide a structured cardiac assessment.",
+    output_model=ECGAnalysis,
+    batch_size=1,
+)
+
+result = job.run(model, data=[
+    {"patient_id": "P001", "ecg": Image.open("ecg_1.jpeg")},
+])
+
+print(result.data[0])
+# ECGAnalysis(heart_rhythm='Sinus Tachycardia', heart_rate_bpm=120, abnormalities=[...])
+```
+
+Works with any vision-capable model — OpenAI GPT-4o, Anthropic Claude, Google Gemini, etc. Use `batch_size=1` for image-heavy payloads.
 
 ---
 
@@ -158,7 +198,7 @@ if not result.success:
 |---|---|---|
 | OpenAI | `"openai"` | `gpt-5.2`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `o4-mini` |
 | Anthropic | `"anthropic"` | `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001` |
-| Google Gemini | `"google_genai"` | `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash` |
+| Google Gemini | `"google_genai"` | `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash` |
 
 ---
 

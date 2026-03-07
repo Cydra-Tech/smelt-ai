@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -346,3 +347,130 @@ class TestExecuteBatches:
         assert result.metrics.input_tokens == 100
         assert result.metrics.output_tokens == 50
         assert result.metrics.wall_time_seconds >= 0
+
+
+# ---------------------------------------------------------------------------
+# Image-aware batch tests
+# ---------------------------------------------------------------------------
+
+PIL = pytest.importorskip("PIL")
+from PIL import Image
+
+
+def _make_test_image() -> Image.Image:
+    """Create a small RGB test image."""
+    return Image.new("RGB", (4, 4), color=(0, 128, 255))
+
+
+class TestExecuteBatchesWithImages:
+    """Tests for image detection in execute_batches."""
+
+    def _make_mock_chat_model(
+        self,
+        responses: list[Any],
+        errors: list[Exception | None] | None = None,
+    ) -> MagicMock:
+        """Create a mock chat model with with_structured_output support."""
+        mock_structured = create_mock_structured_model(responses, errors)
+        mock_chat = MagicMock()
+        mock_chat.with_structured_output.return_value = mock_structured
+        return mock_chat
+
+    @pytest.mark.asyncio
+    async def test_system_message_includes_image_instructions(self) -> None:
+        """System message should include image addendum when data has images."""
+        internal = create_internal_model(SampleOutput)
+        wrapper = create_batch_wrapper(internal)
+
+        parsed = wrapper(rows=[
+            {"row_id": 0, "category": "normal", "confidence": 0.9},
+        ])
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        result = await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="analyze",
+            output_model=SampleOutput,
+            data=[{"patient_id": "P001", "ecg": _make_test_image()}],
+            batch_size=1,
+            concurrency=1,
+            max_retries=0,
+            shuffle=False,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+
+    @pytest.mark.asyncio
+    async def test_warning_emitted_for_large_batch_with_images(self) -> None:
+        """Should emit UserWarning when batch_size > 5 and data has images."""
+        internal = create_internal_model(SampleOutput)
+        wrapper = create_batch_wrapper(internal)
+
+        parsed = wrapper(rows=[
+            {"row_id": 0, "category": "normal", "confidence": 0.9},
+        ])
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        with pytest.warns(UserWarning, match="batch_size=10"):
+            await execute_batches(
+                chat_model=mock_chat,
+                user_prompt="analyze",
+                output_model=SampleOutput,
+                data=[{"ecg": _make_test_image()}],
+                batch_size=10,
+                concurrency=1,
+                max_retries=0,
+                shuffle=False,
+                stop_on_exhaustion=False,
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_warning_for_small_batch_with_images(self) -> None:
+        """Should NOT emit UserWarning when batch_size <= 5 with images."""
+        internal = create_internal_model(SampleOutput)
+        wrapper = create_batch_wrapper(internal)
+
+        parsed = wrapper(rows=[
+            {"row_id": 0, "category": "normal", "confidence": 0.9},
+        ])
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            await execute_batches(
+                chat_model=mock_chat,
+                user_prompt="analyze",
+                output_model=SampleOutput,
+                data=[{"ecg": _make_test_image()}],
+                batch_size=5,
+                concurrency=1,
+                max_retries=0,
+                shuffle=False,
+                stop_on_exhaustion=False,
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_warning_for_text_only_large_batch(self) -> None:
+        """Should NOT warn about batch_size > 5 when data has no images."""
+        internal = create_internal_model(SampleOutput)
+        wrapper = create_batch_wrapper(internal)
+
+        parsed = wrapper(rows=[
+            {"row_id": 0, "category": "tech", "confidence": 0.9},
+        ])
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            await execute_batches(
+                chat_model=mock_chat,
+                user_prompt="classify",
+                output_model=SampleOutput,
+                data=[{"name": "Apple"}],
+                batch_size=10,
+                concurrency=1,
+                max_retries=0,
+                shuffle=False,
+                stop_on_exhaustion=False,
+            )

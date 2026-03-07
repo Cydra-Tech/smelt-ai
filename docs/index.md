@@ -40,6 +40,7 @@ for row in result.data:
 - **Automatic retries** — exponential backoff with jitter for transient failures
 - **Row ordering** — results always match original input order, regardless of batch completion order
 - **Test mode** — validate your setup with a single row before running the full dataset
+- **Vision / image support** — pass PIL images directly in data dicts for vision-capable LLMs (GPT-4o, Claude, Gemini)
 - **Provider agnostic** — works with any LangChain-supported LLM (OpenAI, Anthropic, Google, etc.)
 - **Detailed metrics** — token usage, timing, retry counts, and per-batch error tracking
 - **Flexible error handling** — fail fast or collect errors, with partial results always available
@@ -50,6 +51,7 @@ for row in result.data:
 pip install smelt-ai[openai]      # OpenAI models
 pip install smelt-ai[anthropic]   # Anthropic models
 pip install smelt-ai[google]      # Google Gemini models
+pip install smelt-ai[vision]      # Image support (Pillow)
 ```
 
 Requires Python 3.10+.
@@ -87,6 +89,7 @@ list[dict]  →  Tag with row_id  →  Split into batches  →  Concurrent LLM c
 - [Sentiment Analysis](cookbook/sentiment.md) — extract sentiment, emotions, and opinions
 - [Data Extraction](cookbook/extraction.md) — parse structured fields from unstructured text
 - [Data Enrichment](cookbook/enrichment.md) — add summaries, translations, and generated content
+- [Vision / Images](cookbook/vision.md) — process images with vision-capable LLMs
 - [Advanced Patterns](cookbook/advanced.md) — chaining, retries, pandas, large datasets
 
 ### API Reference

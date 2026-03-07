@@ -2,16 +2,18 @@
 
 Builds the system and human messages sent to the LLM for each batch,
 including row ID tracking instructions and output format guidance.
+Supports multimodal content blocks when PIL images are present.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Type
+from typing import Any, Type
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from smelt.image import _ImageRef, batch_has_images, extract_images_from_rows
 from smelt.types import _TaggedRow
 
 _SYSTEM_TEMPLATE = """You are a structured data transformation assistant.
@@ -30,6 +32,13 @@ _SYSTEM_TEMPLATE = """You are a structured data transformation assistant.
 {schema_description}
 
 Return your response as a JSON object with a single "rows" key containing the array of output objects."""
+
+_IMAGE_SYSTEM_ADDENDUM = """
+
+## Images
+- Some input fields contain image placeholders like "[image: field_name]".
+- The actual images are provided as image blocks in the user message, labeled with row ID and field name.
+- Analyze each image and use your observations to produce the output fields."""
 
 _SCHEMA_DESCRIPTION_TEMPLATE = """Each output row must conform to this schema:
 {fields}"""
@@ -61,16 +70,22 @@ def describe_output_schema(model: Type[BaseModel]) -> str:
     return _SCHEMA_DESCRIPTION_TEMPLATE.format(fields=fields_text)
 
 
-def build_system_message(user_prompt: str, schema_description: str) -> SystemMessage:
+def build_system_message(
+    user_prompt: str,
+    schema_description: str,
+    has_images: bool = False,
+) -> SystemMessage:
     """Build the system message for a smelt batch request.
 
     Combines the user's transformation instructions with row-tracking rules
-    and the output schema description.
+    and the output schema description. When ``has_images`` is ``True``, an
+    addendum explaining image placeholders and blocks is appended.
 
     Args:
         user_prompt: The user-provided transformation instruction.
         schema_description: The formatted schema description from
             :func:`describe_output_schema`.
+        has_images: Whether the batch data contains PIL images.
 
     Returns:
         A LangChain ``SystemMessage`` ready for inclusion in the prompt.
@@ -79,6 +94,8 @@ def build_system_message(user_prompt: str, schema_description: str) -> SystemMes
         user_prompt=user_prompt,
         schema_description=schema_description,
     )
+    if has_images:
+        content += _IMAGE_SYSTEM_ADDENDUM
     return SystemMessage(content=content)
 
 
@@ -86,15 +103,44 @@ def build_human_message(tagged_rows: list[_TaggedRow]) -> HumanMessage:
     """Build the human message containing the batch data payload.
 
     Serializes the tagged rows to a JSON array for the LLM to process.
+    When PIL images are detected in the row data, builds multimodal
+    content blocks with base64-encoded image data.
 
     Args:
         tagged_rows: The input rows, each tagged with a positional ``row_id``.
 
     Returns:
-        A LangChain ``HumanMessage`` with the JSON-serialized row data.
+        A LangChain ``HumanMessage`` with text content (text-only data) or
+        a list of multimodal content blocks (when images are present).
     """
-    payload: list[dict[str, object]] = [
-        {"row_id": row.row_id, **row.data} for row in tagged_rows
+    raw_data: list[dict[str, Any]] = [row.data for row in tagged_rows]
+    if not batch_has_images(raw_data):
+        payload: list[dict[str, object]] = [
+            {"row_id": row.row_id, **row.data} for row in tagged_rows
+        ]
+        content: str = json.dumps(payload, indent=2)
+        return HumanMessage(content=content)
+
+    cleaned_rows, image_refs = extract_images_from_rows(tagged_rows)
+
+    payload = [
+        {"row_id": row.row_id, **row.data} for row in cleaned_rows
     ]
-    content: str = json.dumps(payload, indent=2)
-    return HumanMessage(content=content)
+    text_json: str = json.dumps(payload, indent=2)
+
+    content_blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": text_json},
+    ]
+
+    for ref in image_refs:
+        content_blocks.append(
+            {"type": "text", "text": f"Row {ref.row_id}, field '{ref.field_name}':"}
+        )
+        content_blocks.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{ref.mime_type};base64,{ref.base64_data}"},
+            }
+        )
+
+    return HumanMessage(content=content_blocks)

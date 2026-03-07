@@ -52,6 +52,24 @@ Smelt uses LangChain under the hood, so you need the provider-specific LangChain
     model = Model(provider="google_genai", name="gemini-3-flash-preview", api_key="...")
     ```
 
+=== "Vision (Image Support)"
+
+    ```bash
+    pip install smelt-ai[vision]
+    ```
+
+    Add image support for vision-capable models. Combine with a provider extra:
+    ```bash
+    pip install smelt-ai[openai,vision]
+    ```
+
+    Then pass PIL images directly in your data:
+    ```python
+    from PIL import Image
+    data = [{"patient_id": "P001", "ecg": Image.open("ecg.jpeg")}]
+    result = job.run(model, data=data)
+    ```
+
 ## Multiple providers
 
 Install multiple extras at once:
@@ -105,7 +123,7 @@ Any model supported by LangChain's `init_chat_model` works with smelt. Tested wi
 |---|---|---|---|
 | OpenAI | `"openai"` | `gpt-5.2`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `o4-mini` | `[openai]` |
 | Anthropic | `"anthropic"` | `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001` | `[anthropic]` |
-| Google Gemini | `"google_genai"` | `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash` | `[google]` |
+| Google Gemini | `"google_genai"` | `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `[google]` |
 
 !!! tip "Using other providers"
     Any LangChain chat model provider works — just install the corresponding `langchain-*` package manually. For example, for Azure OpenAI:

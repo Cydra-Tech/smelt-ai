@@ -113,3 +113,27 @@ def sample_data() -> list[dict[str, Any]]:
 def sample_output_model() -> Type[SampleOutput]:
     """Sample Pydantic output model for testing."""
     return SampleOutput
+
+
+@pytest.fixture
+def small_rgb_image() -> Any:
+    """A small 10x10 RGB PIL Image for testing.
+
+    Skips the test if Pillow is not installed.
+    """
+    PIL = pytest.importorskip("PIL")
+    from PIL import Image
+
+    return Image.new("RGB", (10, 10), color=(255, 0, 0))
+
+
+@pytest.fixture
+def small_rgba_image() -> Any:
+    """A small 10x10 RGBA PIL Image for testing.
+
+    Skips the test if Pillow is not installed.
+    """
+    PIL = pytest.importorskip("PIL")
+    from PIL import Image
+
+    return Image.new("RGBA", (10, 10), color=(255, 0, 0, 128))

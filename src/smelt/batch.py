@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+import warnings
 from typing import Any, Type, TypeVar
 
 from langchain_core.language_models import BaseChatModel
@@ -17,6 +18,7 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
 from smelt.errors import SmeltExhaustionError, SmeltValidationError
+from smelt.image import batch_has_images
 from smelt.prompt import build_human_message, build_system_message, describe_output_schema
 from smelt.types import BatchError, SmeltMetrics, SmeltResult, _BatchResult, _TaggedRow
 from smelt.validation import (
@@ -233,8 +235,17 @@ async def execute_batches(
         batch_wrapper, include_raw=True
     )
 
+    has_images: bool = batch_has_images(data)
+    if has_images and batch_size > 5:
+        warnings.warn(
+            f"batch_size={batch_size} with image data may cause large payloads. "
+            "Consider using batch_size <= 5 for vision tasks.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     schema_description: str = describe_output_schema(internal_model)
-    system_message = build_system_message(user_prompt, schema_description)
+    system_message = build_system_message(user_prompt, schema_description, has_images=has_images)
 
     batches: list[list[_TaggedRow]] = [
         tagged_rows[i : i + batch_size]
