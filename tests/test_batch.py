@@ -629,3 +629,61 @@ class TestExecuteBatchesFreeText:
         call_args = mock_chat.with_structured_output.call_args
         model_class = call_args[0][0] if call_args[0] else call_args[1].get("schema")
         assert "rows" in model_class.model_fields
+
+    @pytest.mark.asyncio
+    async def test_text_mode_error_exhaustion(self) -> None:
+        """Text mode should return BatchError after exhausting retries."""
+        error = Exception("rate limit")
+        error.status_code = 429  # type: ignore[attr-defined]
+
+        mock_chat = self._make_mock_chat_model(
+            responses=[],
+            errors=[error, error],
+        )
+
+        with patch("smelt.batch._compute_backoff", return_value=0.0):
+            result = await execute_batches(
+                chat_model=mock_chat,
+                user_prompt="describe",
+                output_model=None,
+                data=[{"name": "Apple"}],
+                batch_size=10,
+                concurrency=1,
+                max_retries=1,
+                shuffle=False,
+                stop_on_exhaustion=False,
+            )
+
+        assert not result.success
+        assert len(result.errors) == 1
+        assert result.errors[0].error_type == "api"
+        assert result.data == []
+
+    @pytest.mark.asyncio
+    async def test_text_mode_shuffle_preserves_order(self) -> None:
+        """Text mode with shuffle=True should return results in original order."""
+        wrapper = create_text_batch_wrapper()
+
+        # Use a single batch so shuffle only reorders within the batch
+        parsed = wrapper(rows=[
+            {"row_id": 0, "text": "First"},
+            {"row_id": 1, "text": "Second"},
+            {"row_id": 2, "text": "Third"},
+        ])
+
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        result = await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="describe",
+            output_model=None,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}],
+            batch_size=10,
+            concurrency=1,
+            max_retries=0,
+            shuffle=True,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert result.data == ["First", "Second", "Third"]

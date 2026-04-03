@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from smelt import Job, Model, SmeltResult
-from smelt.errors import SmeltExhaustionError
+from smelt.errors import SmeltConfigError, SmeltExhaustionError
 from smelt.validation import (
     create_batch_wrapper,
     create_internal_model,
@@ -306,3 +306,45 @@ class TestEndToEndFreeText:
         assert result.success
         assert len(result.data) == 1
         assert result.data[0] == "Test summary"
+
+    def test_free_text_stop_on_exhaustion(self) -> None:
+        """Free-text mode should raise SmeltExhaustionError when stop_on_exhaustion=True."""
+        error = Exception("server error")
+        error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_structured = AsyncMock()
+
+        async def always_fail(messages: Any, **kwargs: Any) -> dict[str, Any]:
+            raise error
+
+        mock_structured.ainvoke = always_fail
+
+        mock_chat_model = MagicMock()
+        mock_chat_model.with_structured_output.return_value = mock_structured
+
+        mock_model = MagicMock(spec=Model)
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        job = Job(
+            prompt="Summarize",
+            batch_size=10,
+            max_retries=1,
+            stop_on_exhaustion=True,
+        )
+
+        with pytest.raises(SmeltExhaustionError) as exc_info:
+            with patch("smelt.batch._compute_backoff", return_value=0.0):
+                job.run(mock_model, data=[{"name": "Apple"}])
+
+        assert exc_info.value.partial_result is not None
+        assert len(exc_info.value.partial_result.errors) > 0
+        assert isinstance(exc_info.value.partial_result.data, list)
+
+    @pytest.mark.asyncio
+    async def test_free_text_atest_empty_data_raises(self) -> None:
+        """atest with output_model=None should raise SmeltConfigError for empty data."""
+        job = Job(prompt="Summarize")
+        mock_model = MagicMock(spec=Model)
+
+        with pytest.raises(SmeltConfigError, match="at least one row"):
+            await job.atest(mock_model, data=[])
