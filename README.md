@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-LLM-powered structured data transformation. Feed in rows of data, get back strictly typed Pydantic models — batched, concurrent, and validated.
+LLM-powered structured data transformation. Feed in rows of data, get back strictly typed Pydantic models or free-text responses — batched, concurrent, and validated.
 
 ```python
 from smelt import Model, Job
@@ -34,6 +34,20 @@ result = job.run(model, data=[
 
 for row in result.data:
     print(row)  # Classification(sector='Technology', sub_sector='Consumer Electronics', is_public=True)
+```
+
+**Free-text mode** — skip the schema, get plain text back:
+
+```python
+job = Job(prompt="Write a one-paragraph summary for each company")
+
+result = job.run(model, data=[
+    {"name": "Apple", "desc": "Consumer electronics and software"},
+    {"name": "Stripe", "desc": "Payment processing platform"},
+])
+
+for text in result.data:
+    print(text)  # "Apple is a multinational technology company..."
 ```
 
 ## Install
@@ -125,7 +139,7 @@ Defines what transformation to run and how to batch it.
 ```python
 job = Job(
     prompt="Your transformation instructions here",
-    output_model=MyPydanticModel,  # Schema for each output row
+    output_model=MyPydanticModel,  # Schema for each output row (None for free-text)
     batch_size=10,                 # Rows per LLM request (default: 10)
     concurrency=3,                 # Max concurrent requests (default: 3)
     max_retries=3,                 # Retries per failed batch (default: 3)

@@ -2,6 +2,20 @@
 
 All notable changes to smelt-ai.
 
+## v0.3.0 — 2026-04-03
+
+### Added
+- **Free-text output mode** — set `output_model=None` (or omit it) to get plain `list[str]` responses instead of structured Pydantic models
+- `_TextRow` internal model for free-text row tracking
+- `create_text_batch_wrapper()` in validation module
+- `text_mode` parameter on `build_system_message()` for text-optimized prompts
+- `output_model` now defaults to `None` — zero-config free-text is the simplest path
+
+### Changed
+- `Job.output_model` is now `Optional[Type[BaseModel]]` with default `None` (backward compatible — existing code with explicit `output_model=MyModel` works unchanged)
+- `execute_batches()` branches on `output_model is None` for text vs structured paths
+- `strip_row_id()` returns `str` when `user_model is None`
+
 ## v0.2.0 — 2026-03-07
 
 ### Added

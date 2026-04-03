@@ -2,6 +2,7 @@
 
 Handles injection of ``row_id`` into user models, creation of batch wrapper
 models for structured output, and post-response validation of row IDs.
+Also provides a built-in text model for free-text output mode.
 """
 
 from __future__ import annotations
@@ -13,6 +14,21 @@ from pydantic import BaseModel, Field, create_model
 from smelt.errors import SmeltConfigError, SmeltValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class _TextRow(BaseModel):
+    """Internal model for free-text output mode.
+
+    Used when ``output_model=None`` — the LLM returns a ``text`` field
+    for each row instead of user-defined structured fields.
+
+    Attributes:
+        row_id: Positional row ID for tracking.
+        text: The free-text response for this row.
+    """
+
+    row_id: int
+    text: str
 
 
 def create_internal_model(user_model: Type[T]) -> Type[BaseModel]:
@@ -124,15 +140,37 @@ def validate_batch_response(
     return rows
 
 
-def strip_row_id(row: BaseModel, user_model: Type[T]) -> T:
+def strip_row_id(row: BaseModel, user_model: Type[T] | None) -> Any:
     """Remove the ``row_id`` field and return a clean instance of the user's model.
+
+    When ``user_model`` is ``None`` (free-text mode), returns the ``text``
+    field as a plain string.
 
     Args:
         row: An internal model instance (with ``row_id``).
-        user_model: The original user-defined Pydantic model class.
+        user_model: The original user-defined Pydantic model class, or
+            ``None`` for free-text mode.
 
     Returns:
-        A new instance of ``user_model`` with only the user-defined fields.
+        A new instance of ``user_model``, or a plain ``str`` in text mode.
     """
+    if user_model is None:
+        return row.text  # type: ignore[attr-defined]
     data: dict[str, Any] = row.model_dump(exclude={"row_id"})
     return user_model.model_validate(data)
+
+
+def create_text_batch_wrapper() -> Type[BaseModel]:
+    """Create a batch wrapper for free-text output mode.
+
+    Returns a Pydantic model with ``rows: list[_TextRow]``, used when
+    ``output_model=None``.
+
+    Returns:
+        A Pydantic model wrapping a list of ``_TextRow`` instances.
+    """
+    batch_wrapper: Type[BaseModel] = create_model(
+        "_SmeltTextBatch",
+        rows=(list[_TextRow], Field(...)),
+    )
+    return batch_wrapper

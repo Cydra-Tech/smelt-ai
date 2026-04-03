@@ -67,6 +67,45 @@ class TestBuildSystemMessage:
         assert msg.type == "system"
 
 
+class TestBuildSystemMessageTextMode:
+    """Tests for build_system_message in free-text mode."""
+
+    def test_text_mode_includes_user_prompt(self) -> None:
+        """Text mode system message should contain the user's instruction."""
+        msg = build_system_message("Summarize each company", text_mode=True)
+        assert "Summarize each company" in msg.content
+
+    def test_text_mode_includes_text_field_instruction(self) -> None:
+        """Text mode should instruct LLM to return a 'text' field."""
+        msg = build_system_message("task", text_mode=True)
+        assert '"text"' in msg.content
+
+    def test_text_mode_includes_row_id_rules(self) -> None:
+        """Text mode should still include row_id tracking rules."""
+        msg = build_system_message("task", text_mode=True)
+        assert "row_id" in msg.content
+
+    def test_text_mode_does_not_include_output_schema(self) -> None:
+        """Text mode should NOT include an Output Schema section."""
+        msg = build_system_message("task", text_mode=True)
+        assert "## Output Schema" not in msg.content
+
+    def test_text_mode_includes_rows_key_instruction(self) -> None:
+        """Text mode should instruct LLM to return rows key."""
+        msg = build_system_message("task", text_mode=True)
+        assert '"rows"' in msg.content
+
+    def test_text_mode_with_images(self) -> None:
+        """Text mode with images should append the image addendum."""
+        msg = build_system_message("task", text_mode=True, has_images=True)
+        assert "image blocks" in msg.content.lower()
+
+    def test_text_mode_is_system_message_type(self) -> None:
+        """Text mode should return a LangChain SystemMessage."""
+        msg = build_system_message("task", text_mode=True)
+        assert msg.type == "system"
+
+
 class TestBuildHumanMessage:
     """Tests for build_human_message."""
 

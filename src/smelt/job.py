@@ -7,7 +7,7 @@ batching parameters, and retry policy — and exposes sync and async run methods
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel
@@ -30,7 +30,8 @@ class Job:
     Attributes:
         prompt: The transformation instruction sent to the LLM.
         output_model: A Pydantic ``BaseModel`` subclass defining the expected
-            output schema for each row.
+            output schema for each row. When ``None``, operates in free-text
+            mode and returns ``SmeltResult[str]`` with plain text responses.
         batch_size: Number of input rows per LLM request. Defaults to 10.
         concurrency: Maximum number of concurrent batch requests. Defaults to 3.
         max_retries: Maximum retry attempts per failed batch. Defaults to 3.
@@ -42,6 +43,8 @@ class Job:
             remaining batches and collects errors.
 
     Examples:
+        Structured output:
+
         >>> from pydantic import BaseModel
         >>> class Classification(BaseModel):
         ...     category: str
@@ -49,13 +52,19 @@ class Job:
         >>> job = Job(
         ...     prompt="Classify each company by industry sector",
         ...     output_model=Classification,
-        ...     batch_size=20,
-        ...     concurrency=3,
         ... )
+
+        Free-text output:
+
+        >>> job = Job(
+        ...     prompt="Write a one-paragraph summary for each company",
+        ... )
+        >>> result = job.run(model, data=companies)
+        >>> result.data  # list[str]
     """
 
     prompt: str
-    output_model: Type[BaseModel]
+    output_model: Type[BaseModel] | None = field(default=None)
     batch_size: int = 10
     concurrency: int = 3
     max_retries: int = 3
@@ -71,11 +80,12 @@ class Job:
         if not self.prompt or not self.prompt.strip():
             raise SmeltConfigError("Job prompt must be a non-empty string.")
 
-        if not isinstance(self.output_model, type) or not issubclass(
-            self.output_model, BaseModel
+        if self.output_model is not None and (
+            not isinstance(self.output_model, type)
+            or not issubclass(self.output_model, BaseModel)
         ):
             raise SmeltConfigError(
-                f"output_model must be a Pydantic BaseModel subclass, "
+                f"output_model must be a Pydantic BaseModel subclass or None, "
                 f"got {type(self.output_model)!r}."
             )
 

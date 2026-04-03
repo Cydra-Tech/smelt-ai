@@ -34,7 +34,7 @@ for row in result.data:
 
 ## Features
 
-- **Structured output** — define your schema with Pydantic, get back validated typed objects
+- **Structured or free-text output** — define a Pydantic schema for typed objects, or omit it for plain text responses
 - **Batch processing** — automatically splits data into batches for efficient LLM calls
 - **Concurrent execution** — async semaphore-based concurrency, no threads or process pools
 - **Automatic retries** — exponential backoff with jitter for transient failures

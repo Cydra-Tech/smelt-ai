@@ -2,6 +2,7 @@
 
 Orchestrates concurrent LLM calls with retry logic, exponential backoff,
 cooperative cancellation, and result reassembly in original row order.
+Supports both structured (Pydantic model) and free-text output modes.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from smelt.types import BatchError, SmeltMetrics, SmeltResult, _BatchResult, _Ta
 from smelt.validation import (
     create_batch_wrapper,
     create_internal_model,
+    create_text_batch_wrapper,
     strip_row_id,
     validate_batch_response,
 )
@@ -185,23 +187,27 @@ async def _process_batch(
 async def execute_batches(
     chat_model: BaseChatModel,
     user_prompt: str,
-    output_model: Type[T],
+    output_model: Type[T] | None,
     data: list[dict[str, Any]],
     batch_size: int,
     concurrency: int,
     max_retries: int,
     shuffle: bool,
     stop_on_exhaustion: bool,
-) -> SmeltResult[T]:
+) -> SmeltResult[Any]:
     """Execute the full batch processing pipeline.
 
     Tags rows, creates internal models, splits into batches, runs them
     concurrently through the LLM, and reassembles results in original order.
 
+    When ``output_model`` is ``None``, operates in free-text mode: the LLM
+    returns a plain text response per row, and results are ``list[str]``.
+
     Args:
         chat_model: The initialized LangChain chat model.
         user_prompt: The user's transformation instruction.
-        output_model: The user's Pydantic model for output rows.
+        output_model: The user's Pydantic model for output rows, or ``None``
+            for free-text output mode.
         data: The input rows as a list of dictionaries.
         batch_size: Number of rows per batch.
         concurrency: Maximum number of concurrent batch requests.
@@ -212,13 +218,17 @@ async def execute_batches(
             when any batch exhausts its retries.
 
     Returns:
-        A ``SmeltResult[T]`` containing validated data, errors, and metrics.
+        A ``SmeltResult`` containing validated data, errors, and metrics.
+        In structured mode, ``data`` is ``list[T]``. In text mode, ``data``
+        is ``list[str]``.
 
     Raises:
         SmeltExhaustionError: If ``stop_on_exhaustion`` is ``True`` and a batch
             fails after all retries.
     """
     start_time: float = time.monotonic()
+
+    text_mode: bool = output_model is None
 
     tagged_rows: list[_TaggedRow] = [
         _TaggedRow(row_id=i, data=row) for i, row in enumerate(data)
@@ -228,8 +238,11 @@ async def execute_batches(
         tagged_rows = tagged_rows.copy()
         random.shuffle(tagged_rows)
 
-    internal_model: Type[BaseModel] = create_internal_model(output_model)
-    batch_wrapper: Type[BaseModel] = create_batch_wrapper(internal_model)
+    if text_mode:
+        batch_wrapper: Type[BaseModel] = create_text_batch_wrapper()
+    else:
+        internal_model: Type[BaseModel] = create_internal_model(output_model)
+        batch_wrapper = create_batch_wrapper(internal_model)
 
     structured_model: Runnable[Any, Any] = chat_model.with_structured_output(
         batch_wrapper, include_raw=True
@@ -244,8 +257,15 @@ async def execute_batches(
             stacklevel=2,
         )
 
-    schema_description: str = describe_output_schema(internal_model)
-    system_message = build_system_message(user_prompt, schema_description, has_images=has_images)
+    if text_mode:
+        system_message = build_system_message(
+            user_prompt, has_images=has_images, text_mode=True
+        )
+    else:
+        schema_description: str = describe_output_schema(internal_model)
+        system_message = build_system_message(
+            user_prompt, schema_description, has_images=has_images
+        )
 
     batches: list[list[_TaggedRow]] = [
         tagged_rows[i : i + batch_size]
@@ -299,7 +319,7 @@ async def execute_batches(
             all_rows.append((row_id, row))
 
     all_rows.sort(key=lambda pair: pair[0])
-    ordered_data: list[T] = [strip_row_id(row, output_model) for _, row in all_rows]
+    ordered_data: list[Any] = [strip_row_id(row, output_model) for _, row in all_rows]
 
     wall_time: float = time.monotonic() - start_time
     failed_row_count: int = sum(len(e.row_ids) for e in errors)
@@ -317,7 +337,7 @@ async def execute_batches(
         wall_time_seconds=round(wall_time, 3),
     )
 
-    smelt_result: SmeltResult[T] = SmeltResult(
+    smelt_result: SmeltResult[Any] = SmeltResult(
         data=ordered_data,
         errors=errors,
         metrics=metrics,

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from smelt.batch import _compute_backoff, _is_retriable_error, _process_batch, execute_batches
 from smelt.types import _TaggedRow
-from smelt.validation import create_batch_wrapper, create_internal_model
+from smelt.validation import create_batch_wrapper, create_internal_model, create_text_batch_wrapper
 from tests.conftest import SampleOutput, create_mock_structured_model
 
 
@@ -498,3 +498,134 @@ class TestExecuteBatchesWithImages:
                 shuffle=False,
                 stop_on_exhaustion=False,
             )
+
+
+# ---------------------------------------------------------------------------
+# Free-text mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteBatchesFreeText:
+    """Tests for execute_batches with output_model=None (free-text mode)."""
+
+    def _make_mock_chat_model(
+        self,
+        responses: list[Any],
+        errors: list[Exception | None] | None = None,
+    ) -> MagicMock:
+        """Create a mock chat model with with_structured_output support."""
+        mock_structured = create_mock_structured_model(responses, errors)
+        mock_chat = MagicMock()
+        mock_chat.with_structured_output.return_value = mock_structured
+        return mock_chat
+
+    @pytest.mark.asyncio
+    async def test_basic_text_output(self) -> None:
+        """Should return list[str] when output_model=None."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[
+            {"row_id": 0, "text": "Apple is a tech company."},
+            {"row_id": 1, "text": "JPMorgan is a bank."},
+        ])
+
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        result = await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="Summarize each company",
+            output_model=None,
+            data=[{"name": "Apple"}, {"name": "JPMorgan"}],
+            batch_size=10,
+            concurrency=1,
+            max_retries=0,
+            shuffle=False,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert len(result.data) == 2
+        assert result.data[0] == "Apple is a tech company."
+        assert result.data[1] == "JPMorgan is a bank."
+        assert all(isinstance(r, str) for r in result.data)
+
+    @pytest.mark.asyncio
+    async def test_text_output_ordered(self) -> None:
+        """Free-text results should be in original input order."""
+        wrapper = create_text_batch_wrapper()
+
+        batch_0 = wrapper(rows=[
+            {"row_id": 0, "text": "Row zero"},
+            {"row_id": 1, "text": "Row one"},
+        ])
+        batch_1 = wrapper(rows=[
+            {"row_id": 2, "text": "Row two"},
+        ])
+
+        mock_chat = self._make_mock_chat_model([batch_0, batch_1])
+
+        result = await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="describe",
+            output_model=None,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}],
+            batch_size=2,
+            concurrency=1,
+            max_retries=0,
+            shuffle=False,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert result.data == ["Row zero", "Row one", "Row two"]
+
+    @pytest.mark.asyncio
+    async def test_text_output_metrics(self) -> None:
+        """Metrics should be populated correctly in text mode."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[{"row_id": 0, "text": "Hello"}])
+
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        result = await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="greet",
+            output_model=None,
+            data=[{"name": "World"}],
+            batch_size=10,
+            concurrency=1,
+            max_retries=0,
+            shuffle=False,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.metrics.total_rows == 1
+        assert result.metrics.successful_rows == 1
+        assert result.metrics.total_batches == 1
+        assert result.metrics.input_tokens == 100
+        assert result.metrics.output_tokens == 50
+
+    @pytest.mark.asyncio
+    async def test_text_uses_text_batch_wrapper(self) -> None:
+        """Text mode should call with_structured_output with text batch wrapper."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[{"row_id": 0, "text": "hello"}])
+
+        mock_chat = self._make_mock_chat_model([parsed])
+
+        await execute_batches(
+            chat_model=mock_chat,
+            user_prompt="greet",
+            output_model=None,
+            data=[{"name": "World"}],
+            batch_size=10,
+            concurrency=1,
+            max_retries=0,
+            shuffle=False,
+            stop_on_exhaustion=False,
+        )
+
+        # Verify with_structured_output was called
+        mock_chat.with_structured_output.assert_called_once()
+        call_args = mock_chat.with_structured_output.call_args
+        model_class = call_args[0][0] if call_args[0] else call_args[1].get("schema")
+        assert "rows" in model_class.model_fields

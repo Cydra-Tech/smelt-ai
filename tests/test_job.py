@@ -211,3 +211,66 @@ class TestJobTest:
 
         with pytest.raises(RuntimeError, match="cannot be called from an async context"):
             job.test(mock_model, data=[{"name": "Apple"}])
+
+
+# ---------------------------------------------------------------------------
+# Free-text mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestJobFreeText:
+    """Tests for Job with output_model=None (free-text mode)."""
+
+    def test_valid_text_job(self) -> None:
+        """Should create a job with output_model=None."""
+        job = Job(prompt="summarize")
+        assert job.prompt == "summarize"
+        assert job.output_model is None
+
+    def test_default_output_model_is_none(self) -> None:
+        """output_model should default to None."""
+        job = Job(prompt="summarize")
+        assert job.output_model is None
+
+    def test_non_model_output_still_rejected(self) -> None:
+        """Should reject output_model that isn't a BaseModel subclass or None."""
+        with pytest.raises(SmeltConfigError, match="BaseModel subclass or None"):
+            Job(prompt="classify", output_model=dict)  # type: ignore[arg-type]
+
+    def test_string_output_model_rejected(self) -> None:
+        """Should reject output_model=str."""
+        with pytest.raises(SmeltConfigError, match="BaseModel subclass or None"):
+            Job(prompt="classify", output_model=str)  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_arun_passes_none_output_model(self) -> None:
+        """arun should pass output_model=None to execute_batches."""
+        job = Job(prompt="summarize")
+
+        mock_result: SmeltResult[str] = SmeltResult(
+            data=["summary 1"],
+            errors=[],
+            metrics=SmeltMetrics(total_rows=1, successful_rows=1),
+        )
+
+        mock_model = MagicMock(spec=Model)
+        mock_chat_model = MagicMock()
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        with patch("smelt.job.execute_batches", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_result
+            result = await job.arun(mock_model, data=[{"name": "Apple"}])
+
+            mock_exec.assert_called_once_with(
+                chat_model=mock_chat_model,
+                user_prompt="summarize",
+                output_model=None,
+                data=[{"name": "Apple"}],
+                batch_size=10,
+                concurrency=3,
+                max_retries=3,
+                shuffle=False,
+                stop_on_exhaustion=True,
+            )
+            assert result.success
+            assert result.data == ["summary 1"]

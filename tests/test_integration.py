@@ -13,7 +13,11 @@ import pytest
 
 from smelt import Job, Model, SmeltResult
 from smelt.errors import SmeltExhaustionError
-from smelt.validation import create_batch_wrapper, create_internal_model
+from smelt.validation import (
+    create_batch_wrapper,
+    create_internal_model,
+    create_text_batch_wrapper,
+)
 from tests.conftest import SampleOutput, create_mock_structured_model
 
 
@@ -179,3 +183,126 @@ class TestEndToEnd:
             ],
         )
         assert result_bad.success is False
+
+
+class TestEndToEndFreeText:
+    """End-to-end integration tests for free-text mode (output_model=None)."""
+
+    def _setup_mock_model(
+        self,
+        responses: list[Any],
+        errors: list[Exception | None] | None = None,
+    ) -> MagicMock:
+        """Create a mock Model whose chat model returns text responses."""
+        mock_structured = create_mock_structured_model(responses, errors)
+        mock_chat_model = MagicMock()
+        mock_chat_model.with_structured_output.return_value = mock_structured
+
+        mock_model = MagicMock(spec=Model)
+        mock_model.get_chat_model.return_value = mock_chat_model
+        return mock_model
+
+    def test_free_text_sync(self) -> None:
+        """Sync run with output_model=None should return list[str]."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[
+            {"row_id": 0, "text": "Apple is a technology company."},
+            {"row_id": 1, "text": "JPMorgan is a financial institution."},
+        ])
+
+        mock_model = self._setup_mock_model([parsed])
+
+        job = Job(
+            prompt="Write a one-sentence summary for each company",
+            batch_size=10,
+            stop_on_exhaustion=False,
+        )
+
+        result = job.run(
+            mock_model,
+            data=[
+                {"name": "Apple", "desc": "Tech company"},
+                {"name": "JPMorgan", "desc": "Bank"},
+            ],
+        )
+
+        assert result.success
+        assert len(result.data) == 2
+        assert isinstance(result.data[0], str)
+        assert isinstance(result.data[1], str)
+        assert "Apple" in result.data[0]
+        assert "JPMorgan" in result.data[1]
+
+    @pytest.mark.asyncio
+    async def test_free_text_async(self) -> None:
+        """Async run with output_model=None should return list[str]."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[
+            {"row_id": 0, "text": "Summary A"},
+        ])
+
+        mock_model = self._setup_mock_model([parsed])
+
+        job = Job(prompt="Summarize", stop_on_exhaustion=False)
+
+        result = await job.arun(mock_model, data=[{"item": "A"}])
+
+        assert result.success
+        assert result.data == ["Summary A"]
+
+    def test_free_text_multi_batch(self) -> None:
+        """Free-text with multiple batches should return results in order."""
+        wrapper = create_text_batch_wrapper()
+
+        batch_0 = wrapper(rows=[{"row_id": 0, "text": "First"}])
+        batch_1 = wrapper(rows=[{"row_id": 1, "text": "Second"}])
+        batch_2 = wrapper(rows=[{"row_id": 2, "text": "Third"}])
+
+        mock_model = self._setup_mock_model([batch_0, batch_1, batch_2])
+
+        job = Job(
+            prompt="Describe",
+            batch_size=1,
+            concurrency=3,
+            stop_on_exhaustion=False,
+        )
+
+        result = job.run(
+            mock_model,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}],
+        )
+
+        assert result.success
+        assert result.data == ["First", "Second", "Third"]
+
+    def test_free_text_empty_data(self) -> None:
+        """Free-text with empty data should return empty result."""
+        mock_chat_model = MagicMock()
+        mock_chat_model.with_structured_output.return_value = MagicMock()
+
+        mock_model = MagicMock(spec=Model)
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        job = Job(prompt="Summarize", stop_on_exhaustion=False)
+
+        result = job.run(mock_model, data=[])
+        assert result.success
+        assert len(result.data) == 0
+
+    def test_free_text_test_method(self) -> None:
+        """test() with output_model=None should work for single row."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[{"row_id": 0, "text": "Test summary"}])
+
+        mock_model = self._setup_mock_model([parsed])
+
+        job = Job(prompt="Summarize")
+
+        result = job.test(
+            mock_model,
+            data=[{"name": "Apple"}, {"name": "Google"}],
+        )
+
+        assert result.success
+        assert len(result.data) == 1
+        assert result.data[0] == "Test summary"

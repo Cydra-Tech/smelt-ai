@@ -7,8 +7,10 @@ from pydantic import BaseModel
 
 from smelt.errors import SmeltConfigError, SmeltValidationError
 from smelt.validation import (
+    _TextRow,
     create_batch_wrapper,
     create_internal_model,
+    create_text_batch_wrapper,
     strip_row_id,
     validate_batch_response,
 )
@@ -152,3 +154,60 @@ class TestStripRowId:
         assert result.name == "test"
         assert result.score == 0.8
         assert not hasattr(result, "row_id") or "row_id" not in result.model_fields
+
+    def test_returns_text_string_when_user_model_is_none(self) -> None:
+        """Should return the text field as a plain string when user_model is None."""
+        row = _TextRow(row_id=0, text="Hello world")
+        result = strip_row_id(row, None)
+        assert result == "Hello world"
+        assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# Free-text mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestTextRow:
+    """Tests for _TextRow model."""
+
+    def test_text_row_has_required_fields(self) -> None:
+        """_TextRow should have row_id and text fields."""
+        row = _TextRow(row_id=0, text="hello")
+        assert row.row_id == 0
+        assert row.text == "hello"
+
+    def test_text_row_validates_types(self) -> None:
+        """_TextRow should enforce type validation."""
+        with pytest.raises(Exception):
+            _TextRow(row_id="not_int", text="hello")  # type: ignore[arg-type]
+
+
+class TestCreateTextBatchWrapper:
+    """Tests for create_text_batch_wrapper."""
+
+    def test_has_rows_field(self) -> None:
+        """Text batch wrapper should have a 'rows' field."""
+        wrapper = create_text_batch_wrapper()
+        assert "rows" in wrapper.model_fields
+
+    def test_accepts_text_rows(self) -> None:
+        """Text batch wrapper should accept _TextRow data."""
+        wrapper = create_text_batch_wrapper()
+        instance = wrapper(rows=[
+            {"row_id": 0, "text": "Hello"},
+            {"row_id": 1, "text": "World"},
+        ])
+        assert len(instance.rows) == 2  # type: ignore[attr-defined]
+
+    def test_validates_with_validate_batch_response(self) -> None:
+        """Text batch wrapper should work with validate_batch_response."""
+        wrapper = create_text_batch_wrapper()
+        parsed = wrapper(rows=[
+            {"row_id": 0, "text": "Hello"},
+            {"row_id": 1, "text": "World"},
+        ])
+        rows = validate_batch_response(parsed, [0, 1])
+        assert len(rows) == 2
+        assert rows[0].text == "Hello"  # type: ignore[attr-defined]
+        assert rows[1].text == "World"  # type: ignore[attr-defined]

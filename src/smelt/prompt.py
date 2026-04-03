@@ -33,6 +33,24 @@ _SYSTEM_TEMPLATE = """You are a structured data transformation assistant.
 
 Return your response as a JSON object with a single "rows" key containing the array of output objects."""
 
+_TEXT_SYSTEM_TEMPLATE = """You are a text generation assistant.
+
+## Task
+{user_prompt}
+
+## Rules
+- You will receive a JSON array of objects. Each object has a "row_id" field.
+- For EACH input object, produce exactly one output object with a "row_id" and a "text" field.
+- The "text" field should contain your free-text response for that row.
+- Every output object MUST include the same "row_id" as the corresponding input object.
+- Do NOT skip, merge, duplicate, or reorder rows.
+- Return ALL rows — the count of output rows must equal the count of input rows.
+
+Return your response as a JSON object with a single "rows" key containing the array of output objects.
+
+Example output format:
+{{"rows": [{{"row_id": 0, "text": "Your response for row 0"}}, {{"row_id": 1, "text": "Your response for row 1"}}]}}"""
+
 _IMAGE_SYSTEM_ADDENDUM = """
 
 ## Images
@@ -72,8 +90,9 @@ def describe_output_schema(model: Type[BaseModel]) -> str:
 
 def build_system_message(
     user_prompt: str,
-    schema_description: str,
+    schema_description: str = "",
     has_images: bool = False,
+    text_mode: bool = False,
 ) -> SystemMessage:
     """Build the system message for a smelt batch request.
 
@@ -81,19 +100,26 @@ def build_system_message(
     and the output schema description. When ``has_images`` is ``True``, an
     addendum explaining image placeholders and blocks is appended.
 
+    In text mode (``output_model=None``), uses a simplified template that
+    instructs the LLM to return free-text responses per row.
+
     Args:
         user_prompt: The user-provided transformation instruction.
         schema_description: The formatted schema description from
-            :func:`describe_output_schema`.
+            :func:`describe_output_schema`. Ignored in text mode.
         has_images: Whether the batch data contains PIL images.
+        text_mode: Whether to use the free-text output template.
 
     Returns:
         A LangChain ``SystemMessage`` ready for inclusion in the prompt.
     """
-    content: str = _SYSTEM_TEMPLATE.format(
-        user_prompt=user_prompt,
-        schema_description=schema_description,
-    )
+    if text_mode:
+        content: str = _TEXT_SYSTEM_TEMPLATE.format(user_prompt=user_prompt)
+    else:
+        content = _SYSTEM_TEMPLATE.format(
+            user_prompt=user_prompt,
+            schema_description=schema_description,
+        )
     if has_images:
         content += _IMAGE_SYSTEM_ADDENDUM
     return SystemMessage(content=content)
