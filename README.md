@@ -119,7 +119,7 @@ Works with any vision-capable model — OpenAI GPT-4o, Anthropic Claude, Google 
 
 ## Aggregate (Many-to-One)
 
-Reduce an entire dataset to a single output using tree-parallel reduction:
+Reduce an entire dataset to a single output. Two strategies:
 
 ```python
 from pydantic import BaseModel, Field
@@ -132,9 +132,20 @@ class PortfolioSummary(BaseModel):
     top_5_by_revenue: list[str]
 
 model = Model(provider="anthropic", name="claude-sonnet-4-6")
+
+# Tree (default) — parallel map then pairwise merge, faster
 job = AggregateJob(
-    prompt="Analyze this portfolio of companies. Count totals, list all sectors, sum revenues.",
+    prompt="Analyze this portfolio. Count totals, list all sectors, sum revenues.",
     output_model=PortfolioSummary,
+    strategy="tree",
+    batch_size=15,
+)
+
+# Sequential — each step sees accumulated output + next batch, higher quality
+job = AggregateJob(
+    prompt="Analyze this portfolio. Count totals, list all sectors, sum revenues.",
+    output_model=PortfolioSummary,
+    strategy="sequential",
     batch_size=15,
 )
 
@@ -143,7 +154,7 @@ print(result.data[0])
 # PortfolioSummary(total_companies=60, sectors=['Technology', 'Finance', ...], ...)
 ```
 
-How it works: batches are mapped in parallel, then merged pairwise in a tree until one result remains. Design your schema with additive fields (lists, counts) for best results.
+Design your schema with additive fields (lists, counts) for best results.
 
 ---
 
@@ -190,6 +201,28 @@ result = await job.arun(model, data=rows)   # Async
 ```python
 result = job.test(model, data=rows)         # Sync — runs only the first row
 result = await job.atest(model, data=rows)  # Async
+```
+
+### `AggregateJob`
+
+Defines a many-to-one aggregation.
+
+```python
+job = AggregateJob(
+    prompt="Your aggregation instructions here",
+    output_model=MySummaryModel,       # Schema for the aggregate output (None for free-text)
+    strategy="tree",                   # "tree" (parallel) or "sequential" (fold)
+    batch_size=50,                     # Rows per step (default: 50)
+    concurrency=3,                     # Max concurrent steps, tree only (default: 3)
+    max_retries=3,                     # Retries per failed step (default: 3)
+    stop_on_exhaustion=True,           # Raise on failure vs collect errors (default: True)
+)
+```
+
+```python
+result = job.run(model, data=rows)          # Sync
+result = await job.arun(model, data=rows)   # Async
+result.data[0]                              # Single aggregate output
 ```
 
 ### `SmeltResult[T]`
