@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Type
+from typing import Any, Literal, Type
 
 from pydantic import BaseModel
 
-from smelt.aggregate import execute_aggregate
+from smelt.aggregate import execute_aggregate, execute_aggregate_sequential
 from smelt.errors import SmeltConfigError
 from smelt.model import Model
 from smelt.types import SmeltResult
@@ -23,47 +23,51 @@ from smelt.types import SmeltResult
 class AggregateJob:
     """A smelt aggregation job.
 
-    Processes all input rows into a single aggregated output using
-    tree-parallel reduction. Each batch is mapped to one output in parallel,
-    then outputs are merged pairwise until one final result remains.
+    Processes all input rows into a single aggregated output. Supports two
+    strategies:
+
+    - ``"tree"`` (default): Map each batch in parallel, then merge outputs
+      pairwise until one result remains. Faster for large datasets.
+    - ``"sequential"``: Process batches one at a time, feeding each step's
+      output into the next as accumulated context. May produce higher quality
+      results since each step sees the full accumulated state.
 
     Attributes:
         prompt: The aggregation instruction sent to the LLM.
         output_model: A Pydantic ``BaseModel`` subclass defining the expected
             aggregate output schema. When ``None``, operates in free-text
             mode and returns ``SmeltResult[str]`` with a single string.
-        batch_size: Number of input rows per map step. Defaults to 50.
-        concurrency: Maximum number of concurrent map/merge steps. Defaults to 3.
+        strategy: Aggregation strategy — ``"tree"`` for parallel map-reduce
+            or ``"sequential"`` for sequential fold. Defaults to ``"tree"``.
+        batch_size: Number of input rows per step. Defaults to 50.
+        concurrency: Maximum number of concurrent map/merge steps (tree only).
+            Ignored in sequential mode. Defaults to 3.
         max_retries: Maximum retry attempts per failed step. Defaults to 3.
         stop_on_exhaustion: If ``True`` (default), raises ``SmeltExhaustionError``
             when any step exhausts its retries.
 
     Examples:
-        Structured aggregation:
+        Tree-parallel aggregation:
 
-        >>> from pydantic import BaseModel, Field
-        >>> class Summary(BaseModel):
-        ...     total_items: int
-        ...     categories: list[str]
         >>> job = AggregateJob(
         ...     prompt="Summarize the dataset",
         ...     output_model=Summary,
         ...     batch_size=20,
         ... )
-        >>> result = job.run(model, data=large_dataset)
-        >>> result.data[0]  # Summary(total_items=500, categories=[...])
 
-        Free-text aggregation:
+        Sequential aggregation:
 
         >>> job = AggregateJob(
-        ...     prompt="Write an executive summary of all companies",
+        ...     prompt="Summarize the dataset",
+        ...     output_model=Summary,
+        ...     strategy="sequential",
+        ...     batch_size=10,
         ... )
-        >>> result = job.run(model, data=companies)
-        >>> result.data[0]  # "The portfolio consists of..."
     """
 
     prompt: str
     output_model: Type[BaseModel] | None = field(default=None)
+    strategy: Literal["tree", "sequential"] = "tree"
     batch_size: int = 50
     concurrency: int = 3
     max_retries: int = 3
@@ -102,6 +106,11 @@ class AggregateJob:
                 f"max_retries must be >= 0, got {self.max_retries}."
             )
 
+        if self.strategy not in ("tree", "sequential"):
+            raise SmeltConfigError(
+                f"strategy must be 'tree' or 'sequential', got {self.strategy!r}."
+            )
+
     async def arun(self, model: Model, *, data: list[dict[str, Any]]) -> SmeltResult[Any]:
         """Run the aggregation job asynchronously.
 
@@ -119,6 +128,17 @@ class AggregateJob:
                 any step exhausts all retries.
         """
         chat_model = model.get_chat_model()
+
+        if self.strategy == "sequential":
+            return await execute_aggregate_sequential(
+                chat_model=chat_model,
+                user_prompt=self.prompt,
+                output_model=self.output_model,
+                data=data,
+                batch_size=self.batch_size,
+                max_retries=self.max_retries,
+                stop_on_exhaustion=self.stop_on_exhaustion,
+            )
 
         return await execute_aggregate(
             chat_model=chat_model,

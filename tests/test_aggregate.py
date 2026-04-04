@@ -13,6 +13,7 @@ from smelt.aggregate import (
     _extract_final_output,
     _serialize_output,
     execute_aggregate,
+    execute_aggregate_sequential,
 )
 from smelt.errors import SmeltExhaustionError
 from tests.conftest import create_mock_structured_model
@@ -486,3 +487,198 @@ class TestExecuteAggregate:
         assert not result.success
         assert result.data == []
         assert len(result.errors) == 1
+
+
+# ---------------------------------------------------------------------------
+# Sequential fold tests
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteAggregateSequential:
+    """Tests for execute_aggregate_sequential."""
+
+    @pytest.mark.asyncio
+    async def test_single_batch(self) -> None:
+        """Single batch (first step, no previous result)."""
+        parsed = SummaryModel(total_items=3, categories=["tech"])
+        mock_chat = _make_mock_chat_model([parsed])
+
+        result = await execute_aggregate_sequential(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}],
+            batch_size=10,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert len(result.data) == 1
+        assert result.data[0].total_items == 3
+
+    @pytest.mark.asyncio
+    async def test_multi_step_accumulation(self) -> None:
+        """Multiple sequential steps should accumulate results."""
+        step_1 = SummaryModel(total_items=2, categories=["tech"])
+        step_2 = SummaryModel(total_items=4, categories=["tech", "finance"])
+        step_3 = SummaryModel(total_items=5, categories=["tech", "finance", "health"])
+
+        mock_chat = _make_mock_chat_model([step_1, step_2, step_3])
+
+        result = await execute_aggregate_sequential(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[{"n": i} for i in range(5)],
+            batch_size=2,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert len(result.data) == 1
+        assert result.data[0].total_items == 5
+        assert result.metrics.total_batches == 3
+        assert result.metrics.successful_batches == 3
+
+    @pytest.mark.asyncio
+    async def test_text_mode(self) -> None:
+        """Sequential fold in text mode should return a string."""
+        step_1 = _AggregateTextOutput(text="First batch summary.")
+        step_2 = _AggregateTextOutput(text="Combined summary of all data.")
+
+        mock_chat = _make_mock_chat_model([step_1, step_2])
+
+        result = await execute_aggregate_sequential(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=None,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+            batch_size=2,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert len(result.data) == 1
+        assert isinstance(result.data[0], str)
+        assert "Combined" in result.data[0]
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self) -> None:
+        """Empty data should return empty result."""
+        mock_chat = MagicMock()
+        mock_chat.with_structured_output.return_value = MagicMock()
+
+        result = await execute_aggregate_sequential(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[],
+            batch_size=10,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert result.data == []
+
+    @pytest.mark.asyncio
+    async def test_step_failure_stops_chain(self) -> None:
+        """A failed step should stop the chain since subsequent steps depend on it."""
+        step_1 = SummaryModel(total_items=2, categories=["a"])
+        error = Exception("server error")
+        error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_chat = _make_mock_chat_model(
+            [step_1],
+            errors=[None, error, error],
+        )
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate_sequential(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": i} for i in range(6)],
+                batch_size=2,
+                max_retries=1,
+                stop_on_exhaustion=False,
+            )
+
+        assert not result.success
+        assert len(result.errors) == 1
+        assert result.data == []
+        # Step 0 succeeded, step 1 failed — should report 2 steps total
+        assert result.metrics.total_batches == 2
+        assert result.metrics.successful_batches == 1
+
+    @pytest.mark.asyncio
+    async def test_step_failure_stop_on_exhaustion(self) -> None:
+        """Sequential failure with stop_on_exhaustion should raise."""
+        error = Exception("server error")
+        error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_chat = _make_mock_chat_model([], errors=[error, error])
+
+        with pytest.raises(SmeltExhaustionError):
+            with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+                await execute_aggregate_sequential(
+                    chat_model=mock_chat,
+                    user_prompt="Summarize",
+                    output_model=SummaryModel,
+                    data=[{"n": "a"}],
+                    batch_size=10,
+                    max_retries=1,
+                    stop_on_exhaustion=True,
+                )
+
+    @pytest.mark.asyncio
+    async def test_metrics_accumulate(self) -> None:
+        """Metrics should accumulate tokens across all sequential steps."""
+        step_1 = SummaryModel(total_items=2, categories=["a"])
+        step_2 = SummaryModel(total_items=4, categories=["a", "b"])
+
+        mock_chat = _make_mock_chat_model([step_1, step_2])
+
+        result = await execute_aggregate_sequential(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+            batch_size=2,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert result.metrics.total_batches == 2
+        assert result.metrics.input_tokens == 200
+        assert result.metrics.output_tokens == 100
+
+    @pytest.mark.asyncio
+    async def test_retry_then_succeed(self) -> None:
+        """Should retry on transient error and succeed in sequential mode."""
+        retriable = Exception("rate limit")
+        retriable.status_code = 429  # type: ignore[attr-defined]
+        success = SummaryModel(total_items=1, categories=["tech"])
+
+        mock_chat = _make_mock_chat_model(
+            [None, success],  # type: ignore[list-item]
+            errors=[retriable, None],
+        )
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate_sequential(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": "a"}],
+                batch_size=10,
+                max_retries=3,
+                stop_on_exhaustion=False,
+            )
+
+        assert result.success
+        assert result.metrics.total_retries == 1

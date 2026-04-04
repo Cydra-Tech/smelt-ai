@@ -296,6 +296,18 @@ class TestBuildAggregateSystemMessage:
         msg = build_aggregate_system_message("task", "schema")
         assert "row_id" not in msg.content
 
+    def test_sequential_structured(self) -> None:
+        """Sequential system message should mention sequential processing."""
+        msg = build_aggregate_system_message("task", "schema", is_sequential=True)
+        assert "sequential" in msg.content.lower()
+        assert "## Output Schema" in msg.content
+
+    def test_sequential_text_mode(self) -> None:
+        """Sequential text mode should not include schema."""
+        msg = build_aggregate_system_message("task", text_mode=True, is_sequential=True)
+        assert "sequential" in msg.content.lower()
+        assert "## Output Schema" not in msg.content
+
 
 class TestBuildAggregateHumanMessage:
     """Tests for build_aggregate_human_message."""
@@ -331,3 +343,20 @@ class TestBuildAggregateHumanMessage:
             second_result="result B",
         )
         assert msg.type == "human"
+
+    def test_sequential_step_contains_previous_and_rows(self) -> None:
+        """Sequential step should contain both previous result and new rows."""
+        msg = build_aggregate_human_message(
+            rows=[{"name": "Apple"}],
+            previous_result='{"total": 5}',
+        )
+        assert "Previous result" in msg.content
+        assert '{"total": 5}' in msg.content
+        assert "New data to incorporate" in msg.content
+        assert "Apple" in msg.content
+
+    def test_sequential_first_step_no_previous(self) -> None:
+        """First sequential step (no previous) should just serialize rows."""
+        msg = build_aggregate_human_message(rows=[{"x": 1}])
+        parsed = json.loads(msg.content)
+        assert parsed == [{"x": 1}]

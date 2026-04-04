@@ -166,6 +166,147 @@ def _extract_final_output(output: BaseModel, text_mode: bool) -> Any:
     return output
 
 
+async def execute_aggregate_sequential(
+    chat_model: BaseChatModel,
+    user_prompt: str,
+    output_model: Type[BaseModel] | None,
+    data: list[dict[str, Any]],
+    batch_size: int,
+    max_retries: int,
+    stop_on_exhaustion: bool,
+) -> SmeltResult[Any]:
+    """Execute a sequential fold aggregate pipeline.
+
+    Processes data in sequential steps: step 1 sees the first batch,
+    step 2 sees the next batch plus step 1's output, and so on.
+    Each step depends on the previous, so there is no parallelism.
+
+    Args:
+        chat_model: The initialized LangChain chat model.
+        user_prompt: The user's aggregation instruction.
+        output_model: The user's Pydantic model for the aggregate output,
+            or ``None`` for free-text mode.
+        data: The input rows as a list of dictionaries.
+        batch_size: Number of rows per step.
+        max_retries: Maximum retry attempts per step.
+        stop_on_exhaustion: If ``True``, raises ``SmeltExhaustionError``
+            when a step exhausts its retries.
+
+    Returns:
+        A ``SmeltResult`` with a single-element ``data`` list containing
+        the aggregate output.
+
+    Raises:
+        SmeltExhaustionError: If ``stop_on_exhaustion`` is ``True`` and
+            any step fails after all retries.
+    """
+    start_time: float = time.monotonic()
+
+    text_mode: bool = output_model is None
+    model_for_output: Type[BaseModel] = _AggregateTextOutput if text_mode else output_model
+
+    structured_model: Runnable[Any, Any] = chat_model.with_structured_output(
+        model_for_output, include_raw=True
+    )
+
+    schema_description: str = "" if text_mode else describe_output_schema(model_for_output)
+    system_message: SystemMessage = build_aggregate_system_message(
+        user_prompt, schema_description, text_mode=text_mode, is_sequential=True,
+    )
+
+    batches: list[list[dict[str, Any]]] = [
+        data[i : i + batch_size]
+        for i in range(0, len(data), batch_size)
+    ]
+
+    if not batches:
+        wall_time: float = time.monotonic() - start_time
+        return SmeltResult(
+            data=[],
+            errors=[],
+            metrics=SmeltMetrics(
+                total_rows=0,
+                wall_time_seconds=round(wall_time, 3),
+            ),
+        )
+
+    errors: list[BatchError] = []
+    total_retries: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+
+    previous_output: BaseModel | None = None
+    previous_result_str: str | None = None
+
+    for step_idx, batch in enumerate(batches):
+        row_offset: int = step_idx * batch_size
+        row_ids: tuple[int, ...] = tuple(range(row_offset, row_offset + len(batch)))
+
+        human_msg = build_aggregate_human_message(
+            rows=batch,
+            previous_result=previous_result_str,
+        )
+
+        parsed, error, retries, in_tok, out_tok = await _process_aggregate_step(
+            structured_model=structured_model,
+            system_message=system_message,
+            human_message=human_msg,
+            step_index=step_idx,
+            max_retries=max_retries,
+            step_row_ids=row_ids,
+        )
+
+        total_retries += retries
+        total_input_tokens += in_tok
+        total_output_tokens += out_tok
+
+        if error is not None:
+            errors.append(error)
+            wall_time = time.monotonic() - start_time
+            smelt_result: SmeltResult[Any] = SmeltResult(
+                data=[],
+                errors=errors,
+                metrics=SmeltMetrics(
+                    total_rows=len(data),
+                    failed_rows=len(data),
+                    total_batches=step_idx + 1,
+                    successful_batches=step_idx,
+                    failed_batches=1,
+                    total_retries=total_retries,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    wall_time_seconds=round(wall_time, 3),
+                ),
+            )
+            if stop_on_exhaustion:
+                raise SmeltExhaustionError(
+                    f"Step {step_idx} failed after exhausting retries.",
+                    partial_result=smelt_result,
+                )
+            return smelt_result
+
+        previous_output = parsed
+        previous_result_str = _serialize_output(parsed, text_mode)  # type: ignore[arg-type]
+
+    final_output: Any = _extract_final_output(previous_output, text_mode)  # type: ignore[arg-type]
+    wall_time = time.monotonic() - start_time
+
+    return SmeltResult(
+        data=[final_output],
+        errors=[],
+        metrics=SmeltMetrics(
+            total_rows=len(data),
+            successful_rows=len(data),
+            total_batches=len(batches),
+            successful_batches=len(batches),
+            total_retries=total_retries,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            wall_time_seconds=round(wall_time, 3),
+        ),
+    )
+
+
 async def execute_aggregate(
     chat_model: BaseChatModel,
     user_prompt: str,

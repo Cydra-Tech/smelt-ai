@@ -215,11 +215,32 @@ _AGGREGATE_MERGE_TEXT_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
 You are merging two partial results produced from different subsets of the original data. Your output may be merged further with other partial results."""
 
 
+_AGGREGATE_SEQ_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are processing data in sequential steps. You may receive a previous result representing your accumulated output so far. Incorporate the new data into the previous result to produce an updated output.
+
+## Output Schema
+{schema_description}"""
+
+_AGGREGATE_SEQ_TEXT_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are processing data in sequential steps. You may receive a previous result representing your accumulated output so far. Incorporate the new data into the previous result to produce an updated output."""
+
+
 def build_aggregate_system_message(
     user_prompt: str,
     schema_description: str = "",
     text_mode: bool = False,
     is_merge: bool = False,
+    is_sequential: bool = False,
 ) -> SystemMessage:
     """Build the system message for an aggregate step.
 
@@ -229,13 +250,24 @@ def build_aggregate_system_message(
         text_mode: Whether to use the free-text template.
         is_merge: Whether this is a merge step (combining two partial results)
             rather than a map step (processing raw data rows).
+        is_sequential: Whether to use the sequential fold template.
 
     Returns:
         A LangChain ``SystemMessage`` ready for inclusion in the prompt.
     """
-    if is_merge:
+    if is_sequential:
         if text_mode:
-            content: str = _AGGREGATE_MERGE_TEXT_SYSTEM_TEMPLATE.format(
+            content: str = _AGGREGATE_SEQ_TEXT_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+            )
+        else:
+            content = _AGGREGATE_SEQ_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+                schema_description=schema_description,
+            )
+    elif is_merge:
+        if text_mode:
+            content = _AGGREGATE_MERGE_TEXT_SYSTEM_TEMPLATE.format(
                 user_prompt=user_prompt,
             )
         else:
@@ -263,18 +295,21 @@ def build_aggregate_human_message(
 ) -> HumanMessage:
     """Build the human message for an aggregate step.
 
-    For a map step, ``rows`` contains the raw data rows.
-    For a merge step, ``previous_result`` and ``second_result`` contain
-    the two partial results to combine.
+    Supports three modes:
+
+    - **Map step**: ``rows`` only — serializes rows as JSON.
+    - **Merge step**: ``previous_result`` + ``second_result`` — two partial results.
+    - **Sequential step**: ``rows`` + ``previous_result`` — new data plus accumulated output.
 
     Args:
-        rows: Raw data rows as dictionaries (map step). ``None`` for merge steps.
-        previous_result: First partial result as a JSON/text string (merge step).
-        second_result: Second partial result as a JSON/text string (merge step).
+        rows: Raw data rows as dictionaries. Used for map and sequential steps.
+        previous_result: Accumulated or first partial result as a string.
+        second_result: Second partial result (merge step only).
 
     Returns:
         A LangChain ``HumanMessage`` with the aggregate data payload.
     """
+    # Merge step: two partial results
     if second_result is not None:
         content: str = (
             f"Partial result 1:\n{previous_result}\n\n"
@@ -282,5 +317,15 @@ def build_aggregate_human_message(
         )
         return HumanMessage(content=content)
 
+    # Sequential step: previous result + new rows
+    if rows is not None and previous_result is not None:
+        rows_json: str = json.dumps(rows, indent=2)
+        content = (
+            f"Previous result:\n{previous_result}\n\n"
+            f"New data to incorporate:\n{rows_json}"
+        )
+        return HumanMessage(content=content)
+
+    # Map step: rows only
     content = json.dumps(rows, indent=2)
     return HumanMessage(content=content)

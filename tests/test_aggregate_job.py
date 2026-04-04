@@ -70,6 +70,26 @@ class TestAggregateJobValidation:
         with pytest.raises(SmeltConfigError, match="max_retries must be >= 0"):
             AggregateJob(prompt="summarize", max_retries=-1)
 
+    def test_invalid_strategy_raises(self) -> None:
+        """Should reject invalid strategy values."""
+        with pytest.raises(SmeltConfigError, match="strategy must be"):
+            AggregateJob(prompt="summarize", strategy="invalid")  # type: ignore[arg-type]
+
+    def test_tree_strategy(self) -> None:
+        """Should accept strategy='tree'."""
+        job = AggregateJob(prompt="summarize", strategy="tree")
+        assert job.strategy == "tree"
+
+    def test_sequential_strategy(self) -> None:
+        """Should accept strategy='sequential'."""
+        job = AggregateJob(prompt="summarize", strategy="sequential")
+        assert job.strategy == "sequential"
+
+    def test_default_strategy_is_tree(self) -> None:
+        """Default strategy should be 'tree'."""
+        job = AggregateJob(prompt="summarize")
+        assert job.strategy == "tree"
+
 
 class TestAggregateJobRun:
     """Tests for AggregateJob.run and AggregateJob.arun."""
@@ -161,3 +181,51 @@ class TestAggregateJobRun:
 
             assert mock_exec.call_args.kwargs["output_model"] is None
             assert result.data == ["Summary text"]
+
+    @pytest.mark.asyncio
+    async def test_arun_sequential_routes_correctly(self) -> None:
+        """Sequential strategy should call execute_aggregate_sequential."""
+        job = AggregateJob(prompt="summarize", strategy="sequential")
+
+        mock_result: SmeltResult[str] = SmeltResult(
+            data=["summary"],
+            errors=[],
+            metrics=SmeltMetrics(total_rows=1, successful_rows=1),
+        )
+
+        mock_model = MagicMock(spec=Model)
+        mock_chat_model = MagicMock()
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        with patch(
+            "smelt.aggregate_job.execute_aggregate_sequential", new_callable=AsyncMock
+        ) as mock_seq:
+            mock_seq.return_value = mock_result
+            result = await job.arun(mock_model, data=[{"n": "a"}])
+
+            mock_seq.assert_called_once()
+            assert result.data == ["summary"]
+
+    @pytest.mark.asyncio
+    async def test_arun_tree_routes_correctly(self) -> None:
+        """Tree strategy should call execute_aggregate (not sequential)."""
+        job = AggregateJob(prompt="summarize", strategy="tree")
+
+        mock_result: SmeltResult[str] = SmeltResult(
+            data=["summary"],
+            errors=[],
+            metrics=SmeltMetrics(total_rows=1, successful_rows=1),
+        )
+
+        mock_model = MagicMock(spec=Model)
+        mock_chat_model = MagicMock()
+        mock_model.get_chat_model.return_value = mock_chat_model
+
+        with patch(
+            "smelt.aggregate_job.execute_aggregate", new_callable=AsyncMock
+        ) as mock_tree:
+            mock_tree.return_value = mock_result
+            result = await job.arun(mock_model, data=[{"n": "a"}])
+
+            mock_tree.assert_called_once()
+            assert result.data == ["summary"]
