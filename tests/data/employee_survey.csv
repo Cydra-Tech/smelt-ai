@@ -1,0 +1,51 @@
+employee_id,department,satisfaction,tenure_years,comment
+E001,Engineering,4,3,Great team collaboration and interesting technical challenges
+E002,Sales,2,1,No clear career path and unrealistic quotas every quarter
+E003,Engineering,5,5,Love the autonomy and cutting-edge tech stack we use
+E004,HR,3,2,Decent work-life balance but processes are too bureaucratic
+E005,Marketing,4,4,Creative freedom is great but budget is always tight
+E006,Engineering,4,6,Good mentorship from senior engineers
+E007,Sales,3,2,Commission structure is fair but base salary is low
+E008,Finance,4,3,Stable team with clear goals each quarter
+E009,Engineering,5,4,Best engineering culture I have experienced
+E010,HR,2,1,Too much paperwork and outdated systems
+E011,Marketing,3,3,Brand work is fun but metrics pressure is intense
+E012,Sales,1,1,Toxic management and impossible targets
+E013,Engineering,4,7,Great benefits and flexible remote work policy
+E014,Finance,3,2,Work is repetitive but team is supportive
+E015,Customer Support,2,1,Burnout from high ticket volume and no support
+E016,Engineering,5,3,Excellent learning opportunities and hackathon culture
+E017,Marketing,4,5,Good cross-team collaboration on campaigns
+E018,Sales,2,2,Training is inadequate for new products
+E019,HR,4,4,Recent improvements in onboarding process are great
+E020,Finance,5,6,Leadership is transparent about company financials
+E021,Customer Support,3,2,Team is great but tools are outdated
+E022,Engineering,4,2,Fast-paced environment with good work-life balance
+E023,Sales,3,3,Territory assignments are unfair across regions
+E024,Marketing,5,4,Data-driven approach has improved campaign ROI significantly
+E025,HR,3,1,Diversity initiatives are good but need more follow-through
+E026,Engineering,3,1,Onboarding was rough and documentation is lacking
+E027,Finance,4,5,Predictable workload with occasional crunch at quarter end
+E028,Customer Support,2,1,No path to promotion after two years here
+E029,Sales,4,5,New CRM system has made pipeline management much easier
+E030,Engineering,5,8,Company invests heavily in employee development
+E031,Marketing,2,1,Strategy changes every month with no consistency
+E032,HR,4,3,Employee wellness programs are genuinely helpful
+E033,Finance,3,2,Cross-department communication could be much better
+E034,Customer Support,3,3,Shift scheduling has improved but still inflexible
+E035,Engineering,4,4,Code review culture is strong and constructive
+E036,Sales,2,1,Product quality issues make selling very difficult
+E037,Marketing,4,6,Executive support for marketing initiatives is strong
+E038,HR,3,2,Benefits package is competitive but dental coverage is weak
+E039,Engineering,5,5,Internal mobility between teams is encouraged
+E040,Finance,4,4,Year-end bonus structure is transparent and fair
+E041,Customer Support,1,1,No recognition for going above and beyond
+E042,Sales,3,4,Compensation is competitive for the industry
+E043,Engineering,4,3,CI/CD pipeline improvements have been game-changing
+E044,Marketing,3,2,Need more budget for experimental marketing channels
+E045,HR,4,5,Performance review process was recently overhauled and is much better
+E046,Finance,3,1,Steep learning curve with internal financial systems
+E047,Customer Support,2,2,Customers are frustrated and we lack the tools to help them
+E048,Engineering,5,6,Open source contributions are encouraged and supported
+E049,Sales,2,1,Quota ramp for new hires is unreasonably aggressive
+E050,Marketing,4,3,Brand positioning has been strong this year

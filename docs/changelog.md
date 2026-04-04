@@ -2,6 +2,18 @@
 
 All notable changes to smelt-ai.
 
+## v0.4.0 — 2026-04-04
+
+### Added
+- **`AggregateJob`** — many-to-one aggregation via tree-parallel reduction
+- Map phase runs batches concurrently, merge phase combines outputs pairwise until one result remains
+- Supports both structured output (`output_model=SummaryModel`) and free-text mode (`output_model=None`)
+- New `execute_aggregate()` engine in `smelt.aggregate` module
+- Aggregate-specific prompt templates for map and merge phases
+- `build_aggregate_system_message()` and `build_aggregate_human_message()` prompt builders
+- 60-company portfolio and 50-employee survey test datasets
+- Live tests verifying aggregation accuracy against ground truth
+
 ## v0.3.0 — 2026-04-03
 
 ### Added

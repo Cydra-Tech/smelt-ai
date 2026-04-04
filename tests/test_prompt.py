@@ -8,7 +8,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from smelt.prompt import build_human_message, build_system_message, describe_output_schema
+from smelt.prompt import (
+    build_aggregate_human_message,
+    build_aggregate_system_message,
+    build_human_message,
+    build_system_message,
+    describe_output_schema,
+)
 from smelt.types import _TaggedRow
 
 
@@ -242,3 +248,86 @@ class TestBuildHumanMessageWithImages:
 
         image_blocks = [b for b in blocks if b["type"] == "image_url"]
         assert len(image_blocks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Aggregate prompt tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAggregateSystemMessage:
+    """Tests for build_aggregate_system_message."""
+
+    def test_map_structured_includes_prompt(self) -> None:
+        """Map system message should contain the user's instruction."""
+        msg = build_aggregate_system_message("Analyze companies", "schema here")
+        assert "Analyze companies" in msg.content
+
+    def test_map_structured_includes_schema(self) -> None:
+        """Map system message should contain the schema description."""
+        msg = build_aggregate_system_message("task", "- total_items (int)")
+        assert "total_items" in msg.content
+
+    def test_map_structured_includes_context(self) -> None:
+        """Map system message should explain subset/merge context."""
+        msg = build_aggregate_system_message("task", "schema")
+        assert "subset" in msg.content
+        assert "merged" in msg.content.lower()
+
+    def test_map_text_mode(self) -> None:
+        """Text mode map message should not include schema section."""
+        msg = build_aggregate_system_message("task", text_mode=True)
+        assert "## Output Schema" not in msg.content
+        assert "subset" in msg.content
+
+    def test_merge_structured_includes_merge_context(self) -> None:
+        """Merge system message should explain merging two partial results."""
+        msg = build_aggregate_system_message("task", "schema", is_merge=True)
+        assert "merging two partial results" in msg.content.lower()
+
+    def test_merge_text_mode(self) -> None:
+        """Text mode merge message should explain merging."""
+        msg = build_aggregate_system_message("task", text_mode=True, is_merge=True)
+        assert "merging two partial results" in msg.content.lower()
+        assert "## Output Schema" not in msg.content
+
+    def test_no_row_id_in_aggregate(self) -> None:
+        """Aggregate prompts should not mention row_id."""
+        msg = build_aggregate_system_message("task", "schema")
+        assert "row_id" not in msg.content
+
+
+class TestBuildAggregateHumanMessage:
+    """Tests for build_aggregate_human_message."""
+
+    def test_map_step_contains_json_rows(self) -> None:
+        """Map step should serialize rows as JSON."""
+        rows = [{"name": "Apple"}, {"name": "Google"}]
+        msg = build_aggregate_human_message(rows=rows)
+        parsed = json.loads(msg.content)
+        assert len(parsed) == 2
+        assert parsed[0]["name"] == "Apple"
+
+    def test_merge_step_contains_both_results(self) -> None:
+        """Merge step should contain both partial results."""
+        msg = build_aggregate_human_message(
+            previous_result='{"total": 5}',
+            second_result='{"total": 3}',
+        )
+        assert "Partial result 1" in msg.content
+        assert "Partial result 2" in msg.content
+        assert '{"total": 5}' in msg.content
+        assert '{"total": 3}' in msg.content
+
+    def test_map_step_is_human_message(self) -> None:
+        """Should return a HumanMessage."""
+        msg = build_aggregate_human_message(rows=[{"x": 1}])
+        assert msg.type == "human"
+
+    def test_merge_step_is_human_message(self) -> None:
+        """Merge step should return a HumanMessage."""
+        msg = build_aggregate_human_message(
+            previous_result="result A",
+            second_result="result B",
+        )
+        assert msg.type == "human"

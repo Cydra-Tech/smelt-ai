@@ -170,3 +170,117 @@ def build_human_message(tagged_rows: list[_TaggedRow]) -> HumanMessage:
         )
 
     return HumanMessage(content=content_blocks)
+
+
+# ---------------------------------------------------------------------------
+# Aggregate prompts
+# ---------------------------------------------------------------------------
+
+_AGGREGATE_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are processing a subset of a larger dataset. Other subsets are being processed in parallel. Your output will be merged with outputs from other subsets.
+
+## Output Schema
+{schema_description}"""
+
+_AGGREGATE_TEXT_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are processing a subset of a larger dataset. Other subsets are being processed in parallel. Your output will be merged with outputs from other subsets."""
+
+_AGGREGATE_MERGE_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are merging two partial results produced from different subsets of the original data. Your output may be merged further with other partial results.
+
+## Output Schema
+{schema_description}"""
+
+_AGGREGATE_MERGE_TEXT_SYSTEM_TEMPLATE = """You are a data aggregation assistant.
+
+## Task
+{user_prompt}
+
+## Context
+You are merging two partial results produced from different subsets of the original data. Your output may be merged further with other partial results."""
+
+
+def build_aggregate_system_message(
+    user_prompt: str,
+    schema_description: str = "",
+    text_mode: bool = False,
+    is_merge: bool = False,
+) -> SystemMessage:
+    """Build the system message for an aggregate step.
+
+    Args:
+        user_prompt: The user-provided aggregation instruction.
+        schema_description: The formatted schema description. Ignored in text mode.
+        text_mode: Whether to use the free-text template.
+        is_merge: Whether this is a merge step (combining two partial results)
+            rather than a map step (processing raw data rows).
+
+    Returns:
+        A LangChain ``SystemMessage`` ready for inclusion in the prompt.
+    """
+    if is_merge:
+        if text_mode:
+            content: str = _AGGREGATE_MERGE_TEXT_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+            )
+        else:
+            content = _AGGREGATE_MERGE_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+                schema_description=schema_description,
+            )
+    else:
+        if text_mode:
+            content = _AGGREGATE_TEXT_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+            )
+        else:
+            content = _AGGREGATE_SYSTEM_TEMPLATE.format(
+                user_prompt=user_prompt,
+                schema_description=schema_description,
+            )
+    return SystemMessage(content=content)
+
+
+def build_aggregate_human_message(
+    rows: list[dict[str, Any]] | None = None,
+    previous_result: str | None = None,
+    second_result: str | None = None,
+) -> HumanMessage:
+    """Build the human message for an aggregate step.
+
+    For a map step, ``rows`` contains the raw data rows.
+    For a merge step, ``previous_result`` and ``second_result`` contain
+    the two partial results to combine.
+
+    Args:
+        rows: Raw data rows as dictionaries (map step). ``None`` for merge steps.
+        previous_result: First partial result as a JSON/text string (merge step).
+        second_result: Second partial result as a JSON/text string (merge step).
+
+    Returns:
+        A LangChain ``HumanMessage`` with the aggregate data payload.
+    """
+    if second_result is not None:
+        content: str = (
+            f"Partial result 1:\n{previous_result}\n\n"
+            f"Partial result 2:\n{second_result}"
+        )
+        return HumanMessage(content=content)
+
+    content = json.dumps(rows, indent=2)
+    return HumanMessage(content=content)

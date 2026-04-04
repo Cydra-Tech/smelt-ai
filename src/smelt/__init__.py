@@ -27,16 +27,18 @@ from smelt.errors import (
     SmeltExhaustionError,
     SmeltValidationError,
 )
+from smelt.aggregate_job import AggregateJob
 from smelt.image import PILLOW_AVAILABLE
 from smelt.job import Job
 from smelt.model import Model
 from smelt.types import BatchError, SmeltMetrics, SmeltResult
 
-__version__: str = "0.3.0"
+__version__: str = "0.4.0"
 
 __all__: list[str] = [
     "Model",
     "Job",
+    "AggregateJob",
     "SmeltResult",
     "SmeltMetrics",
     "BatchError",

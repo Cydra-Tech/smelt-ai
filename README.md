@@ -117,6 +117,36 @@ Works with any vision-capable model — OpenAI GPT-4o, Anthropic Claude, Google 
 
 ---
 
+## Aggregate (Many-to-One)
+
+Reduce an entire dataset to a single output using tree-parallel reduction:
+
+```python
+from pydantic import BaseModel, Field
+from smelt import AggregateJob, Model
+
+class PortfolioSummary(BaseModel):
+    total_companies: int
+    sectors: list[str]
+    total_revenue_millions: float
+    top_5_by_revenue: list[str]
+
+model = Model(provider="anthropic", name="claude-sonnet-4-6")
+job = AggregateJob(
+    prompt="Analyze this portfolio of companies. Count totals, list all sectors, sum revenues.",
+    output_model=PortfolioSummary,
+    batch_size=15,
+)
+
+result = job.run(model, data=companies)  # 60 companies → 1 summary
+print(result.data[0])
+# PortfolioSummary(total_companies=60, sectors=['Technology', 'Finance', ...], ...)
+```
+
+How it works: batches are mapped in parallel, then merged pairwise in a tree until one result remains. Design your schema with additive fields (lists, counts) for best results.
+
+---
+
 ## API
 
 ### `Model`

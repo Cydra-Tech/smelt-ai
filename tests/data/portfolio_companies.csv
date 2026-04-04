@@ -1,0 +1,61 @@
+name,sector,revenue_m,is_public,country,employees
+Apple,Technology,394.3,True,USA,164000
+Microsoft,Technology,211.9,True,USA,221000
+Amazon,Technology,574.8,True,USA,1541000
+Alphabet,Technology,307.4,True,USA,182502
+Meta,Technology,134.9,True,USA,86482
+Tesla,Automotive,96.8,True,USA,127855
+Samsung,Technology,244.2,True,South Korea,267937
+TSMC,Technology,75.9,True,Taiwan,73090
+Nvidia,Technology,60.9,True,USA,29600
+Intel,Technology,54.2,True,USA,124800
+JPMorgan Chase,Finance,154.8,True,USA,309926
+Bank of America,Finance,98.6,True,USA,217000
+Goldman Sachs,Finance,47.4,True,USA,49100
+Morgan Stanley,Finance,54.1,True,USA,82427
+Citigroup,Finance,78.5,True,USA,240000
+HSBC,Finance,66.1,True,UK,219697
+Deutsche Bank,Finance,30.8,True,Germany,87064
+UBS,Finance,40.2,True,Switzerland,74000
+Barclays,Finance,29.5,True,UK,92400
+BNP Paribas,Finance,51.7,True,France,193000
+Pfizer,Healthcare,100.3,True,USA,83000
+Johnson & Johnson,Healthcare,98.9,True,USA,152700
+UnitedHealth,Healthcare,371.6,True,USA,400000
+Roche,Healthcare,66.4,True,Switzerland,101465
+Novartis,Healthcare,51.6,True,Switzerland,108000
+AstraZeneca,Healthcare,45.8,True,UK,89900
+Merck,Healthcare,60.1,True,USA,69000
+Abbott,Healthcare,43.7,True,USA,114000
+Eli Lilly,Healthcare,33.3,True,USA,43000
+Bayer,Healthcare,52.4,True,Germany,101000
+ExxonMobil,Energy,413.7,True,USA,62000
+Shell,Energy,386.2,True,UK,86000
+Chevron,Energy,246.3,True,USA,43846
+TotalEnergies,Energy,263.3,True,France,105476
+BP,Energy,241.4,True,UK,65900
+ConocoPhillips,Energy,58.6,True,USA,10500
+Equinor,Energy,150.8,True,Norway,22109
+Saudi Aramco,Energy,535.2,True,Saudi Arabia,70496
+Eni,Energy,119.5,True,Italy,31500
+Petrobras,Energy,115.7,True,Brazil,45532
+Toyota,Automotive,274.5,True,Japan,375235
+Volkswagen,Automotive,293.8,True,Germany,676000
+Mercedes-Benz,Automotive,162.6,True,Germany,170000
+BMW,Automotive,154.1,True,Germany,149475
+Ford,Automotive,176.2,True,USA,177000
+General Motors,Automotive,171.8,True,USA,167000
+Honda,Automotive,130.1,True,Japan,197039
+Hyundai,Automotive,110.3,True,South Korea,120000
+SpaceX,Aerospace,8.0,False,USA,13000
+Stripe,Fintech,14.0,False,USA,8000
+Databricks,Technology,1.6,False,USA,7000
+OpenAI,Technology,3.7,False,USA,1500
+Anthropic,Technology,0.9,False,USA,1000
+Canva,Technology,1.7,False,Australia,4000
+Discord,Technology,0.6,False,USA,650
+Figma,Technology,0.5,False,USA,1400
+Notion,Technology,0.3,False,USA,500
+Plaid,Fintech,0.4,False,USA,1100
+Revolut,Fintech,1.8,False,UK,8000
+Klarna,Fintech,1.9,False,Sweden,5000
