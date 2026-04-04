@@ -346,3 +346,143 @@ class TestExecuteAggregate:
         mock_chat.with_structured_output.assert_called_once()
         call_args = mock_chat.with_structured_output.call_args
         assert call_args[0][0] is SummaryModel
+
+    @pytest.mark.asyncio
+    async def test_merge_phase_error_stop_on_exhaustion(self) -> None:
+        """Merge step failure with stop_on_exhaustion should raise."""
+        # 4 rows, batch_size=2 → 2 map outputs → 1 merge (which fails)
+        map_1 = SummaryModel(total_items=2, categories=["a"])
+        map_2 = SummaryModel(total_items=2, categories=["b"])
+        merge_error = Exception("server error")
+        merge_error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_chat = _make_mock_chat_model(
+            [map_1, map_2],
+            errors=[None, None, merge_error, merge_error],
+        )
+
+        with pytest.raises(SmeltExhaustionError):
+            with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+                await execute_aggregate(
+                    chat_model=mock_chat,
+                    user_prompt="Summarize",
+                    output_model=SummaryModel,
+                    data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+                    batch_size=2,
+                    concurrency=2,
+                    max_retries=1,
+                    stop_on_exhaustion=True,
+                )
+
+    @pytest.mark.asyncio
+    async def test_merge_phase_error_no_stop(self) -> None:
+        """Merge step failure without stop_on_exhaustion should return errors."""
+        map_1 = SummaryModel(total_items=2, categories=["a"])
+        map_2 = SummaryModel(total_items=2, categories=["b"])
+        merge_error = Exception("server error")
+        merge_error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_chat = _make_mock_chat_model(
+            [map_1, map_2],
+            errors=[None, None, merge_error, merge_error],
+        )
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+                batch_size=2,
+                concurrency=2,
+                max_retries=1,
+                stop_on_exhaustion=False,
+            )
+
+        assert not result.success
+        assert len(result.errors) == 1
+        assert result.data == []
+
+    @pytest.mark.asyncio
+    async def test_retry_then_succeed(self) -> None:
+        """Should retry on transient error and succeed."""
+        retriable_error = Exception("rate limit")
+        retriable_error.status_code = 429  # type: ignore[attr-defined]
+        success = SummaryModel(total_items=1, categories=["tech"])
+
+        mock_chat = _make_mock_chat_model(
+            [None, success],  # type: ignore[list-item]
+            errors=[retriable_error, None],
+        )
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": "a"}],
+                batch_size=10,
+                concurrency=1,
+                max_retries=3,
+                stop_on_exhaustion=False,
+            )
+
+        assert result.success
+        assert result.data[0].total_items == 1
+        assert result.metrics.total_retries == 1
+
+    @pytest.mark.asyncio
+    async def test_multi_batch_metrics(self) -> None:
+        """Metrics should accumulate tokens from both map and merge phases."""
+        map_1 = SummaryModel(total_items=2, categories=["a"])
+        map_2 = SummaryModel(total_items=2, categories=["b"])
+        merge_out = SummaryModel(total_items=4, categories=["a", "b"])
+
+        mock_chat = _make_mock_chat_model([map_1, map_2, merge_out])
+
+        result = await execute_aggregate(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+            batch_size=2,
+            concurrency=2,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        # 2 map steps + 1 merge step = 3 total steps
+        assert result.metrics.total_batches == 3
+        assert result.metrics.successful_batches == 3
+        # Each step uses 100 input + 50 output tokens (from mock)
+        assert result.metrics.input_tokens == 300
+        assert result.metrics.output_tokens == 150
+
+    @pytest.mark.asyncio
+    async def test_partial_map_failure(self) -> None:
+        """When some map steps succeed and some fail, should return empty data."""
+        success = SummaryModel(total_items=2, categories=["a"])
+        error = Exception("server error")
+        error.status_code = 500  # type: ignore[attr-defined]
+
+        mock_chat = _make_mock_chat_model(
+            [success],
+            errors=[None, error, error],
+        )
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": "a"}, {"n": "b"}, {"n": "c"}, {"n": "d"}],
+                batch_size=2,
+                concurrency=1,
+                max_retries=1,
+                stop_on_exhaustion=False,
+            )
+
+        assert not result.success
+        assert result.data == []
+        assert len(result.errors) == 1

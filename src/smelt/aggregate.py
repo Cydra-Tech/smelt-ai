@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import time
-from typing import Any, Type, TypeVar
+from typing import Any, Type
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
@@ -26,8 +25,6 @@ from smelt.prompt import (
     describe_output_schema,
 )
 from smelt.types import BatchError, SmeltMetrics, SmeltResult
-
-T = TypeVar("T", bound=BaseModel)
 
 
 class _AggregateTextOutput(BaseModel):
@@ -172,7 +169,7 @@ def _extract_final_output(output: BaseModel, text_mode: bool) -> Any:
 async def execute_aggregate(
     chat_model: BaseChatModel,
     user_prompt: str,
-    output_model: Type[T] | None,
+    output_model: Type[BaseModel] | None,
     data: list[dict[str, Any]],
     batch_size: int,
     concurrency: int,
@@ -249,11 +246,8 @@ async def execute_aggregate(
     # --- Phase 1: Map (parallel) ---
     async def _map_step(
         batch: list[dict[str, Any]], idx: int, row_offset: int,
-    ) -> tuple[int, BaseModel | None, BatchError | None]:
+    ) -> tuple[int, BaseModel | None, BatchError | None, int, int, int]:
         async with semaphore:
-            nonlocal total_retries, total_input_tokens, total_output_tokens, total_steps
-            total_steps += 1
-
             row_ids = tuple(range(row_offset, row_offset + len(batch)))
             human_msg = build_aggregate_human_message(rows=batch)
 
@@ -266,29 +260,32 @@ async def execute_aggregate(
                 step_row_ids=row_ids,
             )
 
-            total_retries += retries
-            total_input_tokens += in_tok
-            total_output_tokens += out_tok
+            return idx, parsed, error, retries, in_tok, out_tok
 
-            return idx, parsed, error
-
-    map_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None]]] = []
+    map_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None, int, int, int]]] = []
     row_offset: int = 0
     for idx, batch in enumerate(batches):
         task = asyncio.create_task(_map_step(batch, idx, row_offset))
         map_tasks.append(task)
         row_offset += len(batch)
 
-    map_results: list[tuple[int, BaseModel | None, BatchError | None]] = []
+    map_results: list[tuple[int, BaseModel | None, BatchError | None, int, int, int]] = []
     for coro in asyncio.as_completed(map_tasks):
         result = await coro
         map_results.append(result)
 
     map_results.sort(key=lambda r: r[0])
 
+    # Aggregate metrics from map phase (post-hoc summation — no race conditions)
+    for _, _, _, retries, in_tok, out_tok in map_results:
+        total_retries += retries
+        total_input_tokens += in_tok
+        total_output_tokens += out_tok
+    total_steps += len(map_results)
+
     # Collect successful map outputs and any errors
     map_outputs: list[BaseModel] = []
-    for idx, parsed, error in map_results:
+    for idx, parsed, error, _, _, _ in map_results:
         if error is not None:
             errors.append(error)
             if stop_on_exhaustion:
@@ -370,14 +367,12 @@ async def execute_aggregate(
 
         async def _merge_step(
             left: BaseModel, right: BaseModel | None, step_idx: int,
-        ) -> tuple[int, BaseModel | None, BatchError | None]:
+        ) -> tuple[int, BaseModel | None, BatchError | None, int, int, int]:
+            if right is None:
+                # Odd element passes through without an LLM call
+                return step_idx, left, None, 0, 0, 0
+
             async with semaphore:
-                nonlocal total_retries, total_input_tokens, total_output_tokens, total_steps
-                total_steps += 1
-
-                if right is None:
-                    return step_idx, left, None
-
                 left_str: str = _serialize_output(left, text_mode)
                 right_str: str = _serialize_output(right, text_mode)
 
@@ -395,28 +390,34 @@ async def execute_aggregate(
                     step_row_ids=(),
                 )
 
-                total_retries += retries
-                total_input_tokens += in_tok
-                total_output_tokens += out_tok
+                return step_idx, parsed, error, retries, in_tok, out_tok
 
-                return step_idx, parsed, error
-
-        merge_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None]]] = []
+        merge_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None, int, int, int]]] = []
         for left, right in pairs:
             task = asyncio.create_task(_merge_step(left, right, merge_step_idx))
             merge_tasks.append(task)
             merge_step_idx += 1
 
-        merge_results: list[tuple[int, BaseModel | None, BatchError | None]] = []
+        merge_results: list[tuple[int, BaseModel | None, BatchError | None, int, int, int]] = []
         for coro in asyncio.as_completed(merge_tasks):
             merge_result = await coro
             merge_results.append(merge_result)
 
         merge_results.sort(key=lambda r: r[0])
 
+        # Aggregate metrics from merge phase (post-hoc summation)
+        for _, _, error, retries, in_tok, out_tok in merge_results:
+            total_retries += retries
+            total_input_tokens += in_tok
+            total_output_tokens += out_tok
+            if error is None and (in_tok > 0 or out_tok > 0):
+                total_steps += 1
+            elif error is not None:
+                total_steps += 1
+
         next_level: list[BaseModel] = []
         merge_failed: bool = False
-        for step_idx, parsed, error in merge_results:
+        for _, parsed, error, _, _, _ in merge_results:
             if error is not None:
                 errors.append(error)
                 merge_failed = True
@@ -427,9 +428,8 @@ async def execute_aggregate(
 
         if merge_failed:
             wall_time = time.monotonic() - start_time
-            result_data: list[Any] = []
             smelt_result = SmeltResult(
-                data=result_data,
+                data=[],
                 errors=errors,
                 metrics=SmeltMetrics(
                     total_rows=len(data),
@@ -455,8 +455,6 @@ async def execute_aggregate(
     # Final result
     final_output = _extract_final_output(current_level[0], text_mode)
     wall_time = time.monotonic() - start_time
-
-    num_levels: int = 1 + (math.ceil(math.log2(len(batches))) if len(batches) > 1 else 0)
 
     return SmeltResult(
         data=[final_output],
