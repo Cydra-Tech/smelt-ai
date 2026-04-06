@@ -488,6 +488,86 @@ class TestExecuteAggregate:
         assert result.data == []
         assert len(result.errors) == 1
 
+    @pytest.mark.asyncio
+    async def test_deep_tree_four_levels(self) -> None:
+        """8 batches should produce 3 merge levels (map + 3 merge rounds)."""
+        maps = [SummaryModel(total_items=1, categories=[f"c{i}"]) for i in range(8)]
+        merge_l1 = [
+            SummaryModel(total_items=2, categories=["a", "b"]) for _ in range(4)
+        ]
+        merge_l2 = [
+            SummaryModel(total_items=4, categories=["a", "b"]) for _ in range(2)
+        ]
+        merge_final = SummaryModel(total_items=8, categories=["all"])
+
+        all_responses = maps + merge_l1 + merge_l2 + [merge_final]
+        mock_chat = _make_mock_chat_model(all_responses)
+
+        result = await execute_aggregate(
+            chat_model=mock_chat,
+            user_prompt="Summarize",
+            output_model=SummaryModel,
+            data=[{"n": i} for i in range(8)],
+            batch_size=1,
+            concurrency=4,
+            max_retries=0,
+            stop_on_exhaustion=False,
+        )
+
+        assert result.success
+        assert len(result.data) == 1
+        assert result.data[0].total_items == 8
+
+    @pytest.mark.asyncio
+    async def test_parsing_error_triggers_validation_retry(self) -> None:
+        """A parsing_error in the response should trigger validation retry."""
+        from typing import Sequence
+        from unittest.mock import AsyncMock
+
+        from langchain_core.messages import AIMessage, BaseMessage
+
+        call_idx: int = 0
+
+        async def mock_ainvoke(
+            messages: Sequence[BaseMessage], **kwargs: Any,
+        ) -> dict[str, Any]:
+            nonlocal call_idx
+            idx = call_idx
+            call_idx += 1
+            raw = AIMessage(
+                content="mock",
+                usage_metadata={
+                    "input_tokens": 100, "output_tokens": 50, "total_tokens": 150,
+                },
+            )
+            if idx == 0:
+                return {"raw": raw, "parsed": None, "parsing_error": "invalid JSON"}
+            return {
+                "raw": raw,
+                "parsed": SummaryModel(total_items=1, categories=["a"]),
+                "parsing_error": None,
+            }
+
+        mock_structured = AsyncMock()
+        mock_structured.ainvoke = mock_ainvoke
+        mock_chat = MagicMock()
+        mock_chat.with_structured_output.return_value = mock_structured
+
+        with patch("smelt.aggregate._compute_backoff", return_value=0.0):
+            result = await execute_aggregate(
+                chat_model=mock_chat,
+                user_prompt="Summarize",
+                output_model=SummaryModel,
+                data=[{"n": "a"}],
+                batch_size=10,
+                concurrency=1,
+                max_retries=2,
+                stop_on_exhaustion=False,
+            )
+
+        assert result.success
+        assert result.metrics.total_retries == 1
+
 
 # ---------------------------------------------------------------------------
 # Sequential fold tests

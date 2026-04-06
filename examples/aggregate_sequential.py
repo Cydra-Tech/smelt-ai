@@ -2,7 +2,7 @@
 
 Usage:
     pip install smelt-ai[google]
-    export GEMINI_API_KEY="..."
+    export GOOGLE_API_KEY="..."
     python examples/aggregate_sequential.py
 """
 
