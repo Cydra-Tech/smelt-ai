@@ -506,12 +506,13 @@ async def execute_aggregate(
             else:
                 pairs.append((current_level[i], None))
 
+        # Return tuple: (step_idx, parsed, error, retries, in_tok, out_tok, was_llm_call)
         async def _merge_step(
             left: BaseModel, right: BaseModel | None, step_idx: int,
-        ) -> tuple[int, BaseModel | None, BatchError | None, int, int, int]:
+        ) -> tuple[int, BaseModel | None, BatchError | None, int, int, int, bool]:
             if right is None:
                 # Odd element passes through without an LLM call
-                return step_idx, left, None, 0, 0, 0
+                return step_idx, left, None, 0, 0, 0, False
 
             async with semaphore:
                 left_str: str = _serialize_output(left, text_mode)
@@ -531,15 +532,15 @@ async def execute_aggregate(
                     step_row_ids=(),
                 )
 
-                return step_idx, parsed, error, retries, in_tok, out_tok
+                return step_idx, parsed, error, retries, in_tok, out_tok, True
 
-        merge_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None, int, int, int]]] = []
+        merge_tasks: list[asyncio.Task[tuple[int, BaseModel | None, BatchError | None, int, int, int, bool]]] = []
         for left, right in pairs:
             task = asyncio.create_task(_merge_step(left, right, merge_step_idx))
             merge_tasks.append(task)
             merge_step_idx += 1
 
-        merge_results: list[tuple[int, BaseModel | None, BatchError | None, int, int, int]] = []
+        merge_results: list[tuple[int, BaseModel | None, BatchError | None, int, int, int, bool]] = []
         for coro in asyncio.as_completed(merge_tasks):
             merge_result = await coro
             merge_results.append(merge_result)
@@ -547,18 +548,16 @@ async def execute_aggregate(
         merge_results.sort(key=lambda r: r[0])
 
         # Aggregate metrics from merge phase (post-hoc summation)
-        for _, _, error, retries, in_tok, out_tok in merge_results:
+        for _, _, error, retries, in_tok, out_tok, was_llm_call in merge_results:
             total_retries += retries
             total_input_tokens += in_tok
             total_output_tokens += out_tok
-            if error is None and (in_tok > 0 or out_tok > 0):
-                total_steps += 1
-            elif error is not None:
+            if was_llm_call:
                 total_steps += 1
 
         next_level: list[BaseModel] = []
         merge_failed: bool = False
-        for _, parsed, error, _, _, _ in merge_results:
+        for _, parsed, error, _, _, _, _ in merge_results:
             if error is not None:
                 errors.append(error)
                 merge_failed = True
